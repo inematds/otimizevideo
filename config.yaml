@@ -1,6 +1,6 @@
 transcricao: groq          # groq | whisper_local | whisperx
-visual: local              # local | glm | gemini
-pontuacao: glm             # glm | gemini | ollama
+visual: local              # local | glm | gemini | claude_cli
+pontuacao: glm             # glm | gemini | ollama | claude_cli
 tts: inemavox              # inemavox | elevenlabs
 modelos:
   glm: z-ai/glm-5.3-flash

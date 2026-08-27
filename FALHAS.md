@@ -2,6 +2,7 @@
 
 | data | o que quebrou | menor correção | prompt \| infra |
 |---|---|---|---|
+| 2026-08-27 | Task 11 (`otv.py custo`): `custos.json` com chave -> escalar legada (`{"render_s": 45.1}`, sobra de um spike anterior) quebrava `cmd_custo` com `AttributeError` — `registrar()` faz merge e nunca remove chaves velhas, então até um `run` novo na mesma pasta herdaria o problema | pula (`continue`) qualquer valor de `custos.json` que não seja `dict` antes de ler `uso`/`cost` | infra |
 | 2026-08-27 | Task 10 (`tts.py`): `GET /api/jobs/{id}/download` do inemavox devolve 404 pro job de TTS | trocado pra `GET /api/jobs/{id}/audio` (`ENDPOINT_AUDIO`) | infra |
 | 2026-08-27 | Task 9 (`render.py`): `%` solto na manchete (drawtext `expansion=normal`) apagava o texto sem erro | `expansion=none` no drawtext; teste passou a contar pixels de glifo, não brilho | prompt |
 | 2026-08-27 | Task 9 (`render.py`): `sem_audio_original=True` não silenciava — `volume=0dB` é ganho unitário | trocado por `volume=0` (silêncio real) quando `sem_audio_original=True` | prompt |
