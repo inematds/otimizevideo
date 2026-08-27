@@ -168,3 +168,44 @@ def test_classificar_idempotente_nao_chama_llm_de_novo(tmp_path, monkeypatch):
     monkeypatch.setattr(L, "criar_llm", _boom)
     out = classificar(d, cfg, provedor="glm")
     assert json.loads(out.read_text())["cenas"][0]["descricao"] == "já classificada"
+
+
+# --- falha real de 2026-08-27: AV1 1080p dava ZERO cenas -------------------
+
+def test_proxy_cenas_reaproveita_arquivo_existente(tmp_path):
+    from otv.fases.cenas import proxy_cenas
+    existente = tmp_path / "video_360p.mp4"; existente.write_bytes(b"nao-e-video")
+    # se tentasse transcodificar, o ffmpeg falharia no arquivo de entrada inexistente
+    assert proxy_cenas(tmp_path / "nao-existe.mp4", existente) == existente
+    assert existente.read_bytes() == b"nao-e-video"
+
+
+def test_proxy_cenas_gera_360p_a_partir_do_fonte(video_teste, tmp_path):
+    from otv.fases.cenas import proxy_cenas
+    from otv.util.ffmpeg import probe
+    p = proxy_cenas(video_teste, tmp_path / "p.mp4", altura=120)
+    assert p.exists() and probe(p)["altura"] == 120
+    assert not (tmp_path / "p.parte.mp4").exists()      # temporário renomeado, nada de lixo
+
+
+def test_detectar_cenas_falha_alto_quando_video_longo_nao_da_corte(monkeypatch, tmp_path):
+    # Regressão: um AV1 de 20 min que o OpenCV não decodifica devolvia ZERO cortes e a
+    # gente engolia com "uma cena cobrindo o vídeo inteiro" -- aí modo B/C e A+ ficavam
+    # sem nenhum talking_head pra classificar, sem sinal nenhum de falha.
+    import otv.fases.cenas as C
+    monkeypatch.setattr(C, "probe", lambda v: {"duracao_s": 1206.0})
+    monkeypatch.setitem(__import__("sys").modules, "scenedetect",
+                        type("M", (), {"detect": staticmethod(lambda *a, **k: []),
+                                       "AdaptiveDetector": lambda *a, **k: None})())
+    with pytest.raises(RuntimeError, match="nenhum corte"):
+        C.detectar_cenas(tmp_path / "v.mp4")
+
+
+def test_detectar_cenas_video_curto_de_plano_unico_continua_valido(monkeypatch, tmp_path):
+    # vídeo curto sem corte é plausível de verdade -- esse continua caindo no fallback
+    import otv.fases.cenas as C
+    monkeypatch.setattr(C, "probe", lambda v: {"duracao_s": 40.0})
+    monkeypatch.setitem(__import__("sys").modules, "scenedetect",
+                        type("M", (), {"detect": staticmethod(lambda *a, **k: []),
+                                       "AdaptiveDetector": lambda *a, **k: None})())
+    assert C.detectar_cenas(tmp_path / "v.mp4") == [(0.0, 40.0)]

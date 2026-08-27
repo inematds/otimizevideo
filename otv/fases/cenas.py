@@ -1,6 +1,6 @@
 import json, time
 from pathlib import Path
-from otv.util.ffmpeg import thumb, probe
+from otv.util.ffmpeg import run, thumb, probe
 from otv.util.custos import registrar
 
 _MODELO_ROSTO = Path(__file__).resolve().parents[1] / "modelos" / "blaze_face_short_range.tflite"
@@ -8,11 +8,40 @@ _MODELO_ROSTO = Path(__file__).resolve().parents[1] / "modelos" / "blaze_face_sh
 VISUAIS_VALIDOS = ("talking_head", "slide", "demo_tela", "grafico", "outro")
 
 
-def detectar_cenas(video):
+def proxy_cenas(video, destino, altura=360):
+    """Proxy H.264 pequeno para a detecção de cena. Reaproveita um já existente.
+
+    O PySceneDetect lê o vídeo pelo OpenCV, e o OpenCV desta máquina NÃO decodifica AV1
+    (que é o que o yt-dlp entrega em 1080p): em 2026-08-27 um vídeo AV1 de 20 min deu
+    ZERO cenas, e o fallback silencioso de "uma cena cobrindo o vídeo inteiro" fez o
+    modo B/C e o A+ ficarem sem nenhuma cena pra classificar. O ffmpeg decodifica AV1
+    sem problema, então transcodificamos uma vez para 360p H.264 e detectamos em cima
+    disso — de quebra é bem mais rápido que detectar em 1080p.
+    """
+    destino = Path(destino)
+    if not destino.exists():
+        tmp = destino.with_suffix(".parte.mp4")
+        run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-an", "-vf", f"scale=-2:{altura}",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", str(tmp)])
+        tmp.replace(destino)
+    return destino
+
+
+def detectar_cenas(video, proxy=None):
     from scenedetect import detect, AdaptiveDetector
-    lista = detect(str(video), AdaptiveDetector())
+    alvo = proxy_cenas(video, proxy) if proxy else video
+    lista = detect(str(alvo), AdaptiveDetector())
     if not lista:
-        return [(0.0, probe(video)["duracao_s"])]
+        dur = probe(video)["duracao_s"]
+        if dur > 120:
+            # Uma cena só num vídeo de mais de 2 min quase sempre significa que o
+            # decodificador do OpenCV não leu o arquivo (ver proxy_cenas) — não um vídeo
+            # de plano único. Falhar alto: o silêncio aqui vira "nenhum talking_head"
+            # lá na frente, sem sinal nenhum de que a detecção não rodou.
+            raise RuntimeError(
+                f"detecção de cena não achou nenhum corte em {dur:.0f}s de vídeo ({alvo}) — "
+                "provavelmente o OpenCV não decodificou esse codec; confira se o proxy H.264 foi gerado")
+        return [(0.0, dur)]
     return [(s.seconds, e.seconds) for s, e in lista]  # get_seconds() está deprecated na 0.7.1
 
 
@@ -83,7 +112,7 @@ def cenas(dir, cfg, forcar=False):
     t0 = time.time()
     (dir / "thumbs").mkdir(exist_ok=True)
     lista = []
-    for i, (ini, fim) in enumerate(detectar_cenas(dir / "video.mp4")):
+    for i, (ini, fim) in enumerate(detectar_cenas(dir / "video.mp4", proxy=dir / "video_360p.mp4")):
         jpg = dir / "thumbs" / f"{i:03d}.jpg"
         thumb(dir / "video.mp4", ini + min(1.0, (fim - ini) / 2), jpg)
         r = rosto_pct(jpg)

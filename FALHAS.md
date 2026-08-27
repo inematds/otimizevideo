@@ -2,6 +2,7 @@
 
 | data | o que quebrou | menor correção | prompt \| infra |
 |---|---|---|---|
+| 2026-08-27 | Detecção de cena devolvia UMA cena para o vídeo inteiro (20 min): o OpenCV que o PySceneDetect usa não decodifica AV1 (o que o yt-dlp entrega em 1080p), e o fallback silencioso `[(0, duração)]` deixava modo B/C e A+ sem nenhuma cena para classificar | detectar em um proxy 360p H.264 gerado pelo ffmpeg (`proxy_cenas`) e levantar erro quando um vídeo de mais de 2 min não dá nenhum corte, em vez de engolir | infra |
 | 2026-08-27 | Host congelou (reboot 06:31): `render()` monta UM `-filter_complex` com N `[0:v]trim` sobre o vídeo inteiro (1206s) — o ffmpeg bufferiza os quadros crus de todas as ramificações enquanto o `concat` consome a primeira, chegando a 60,9 GB de RSS e travando a máquina | falta um teto: renderizar segmento a segmento (`-ss/-t` por trecho + concat demuxer) em vez de um filtergraph único, e/ou rodar o ffmpeg sob `systemd-run --scope -p MemoryMax=` | prompt+infra |
 | 2026-08-27 | Task 11 (`otv.py custo`): `custos.json` com chave -> escalar legada (`{"render_s": 45.1}`, sobra de um spike anterior) quebrava `cmd_custo` com `AttributeError` — `registrar()` faz merge e nunca remove chaves velhas, então até um `run` novo na mesma pasta herdaria o problema | pula (`continue`) qualquer valor de `custos.json` que não seja `dict` antes de ler `uso`/`cost` | infra |
 | 2026-08-27 | Task 10 (`tts.py`): `GET /api/jobs/{id}/download` do inemavox devolve 404 pro job de TTS | trocado pra `GET /api/jobs/{id}/audio` (`ENDPOINT_AUDIO`) | infra |
