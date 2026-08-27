@@ -144,6 +144,17 @@ def test_render_manchete_caracteres_perigosos_render_de_verdade(video_teste, tmp
 
 # --- Achados 4 e 5 da rodada de correção 1 --------------------------------
 
+def test_montar_filtro_narracao_tem_fade_out():
+    # Achado 1 da rodada de correção 1 da Task 10: a Task 10 já trunca o roteiro pelo
+    # orçamento de palavras antes do TTS, mas a duração real do wav não é perfeitamente
+    # previsível a partir da contagem de palavras -- este afade=t=out na trilha de narração
+    # ([n{k}]) é a rede de segurança contra um corte abrupto no atrim=0:{d+ext}, com a
+    # mesma duração de 0.04s que a trilha original já usa.
+    seg = [{"in": 0.0, "out": 2.0, "estender_s": 0.5}]
+    f = montar_filtro(seg, narracao=["a.wav"])
+    assert "afade=t=out:st=2.460:d=0.04[n0]" in f  # d+ext=2.5 -> st=2.5-0.04=2.46
+
+
 def test_render_narracao_com_null_falha_com_mensagem_clara(video_teste, tmp_path):
     # Achado 4: pular o None desalinharia todos os índices [k+1:a] seguintes,
     # silenciosamente -- falhar rápido e alto é o comportamento certo. O que faltava era

@@ -1,18 +1,44 @@
-import json, time
+import json, re, time
 from pathlib import Path
 from otv.provedores.llm import criar_llm
 from otv.provedores.tts import tts
 from otv.util.ffmpeg import run
 from otv.util.custos import registrar
 
-PPM = 2.5  # palavras por segundo (~150 ppm)
+PPM = 2.5       # palavras por segundo (~150 ppm)
+MAX_FREEZE = 3.0  # teto de freeze em segundos — mesmo valor usado por ajustar_extensao()
 
 def duracao_wav(p):
     return float(run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(p)]).strip())
 
-def ajustar_extensao(segmentos, duracoes, max_freeze=3.0):
+def ajustar_extensao(segmentos, duracoes, max_freeze=MAX_FREEZE):
     for s, d in zip(segmentos, duracoes):
         s["estender_s"] = round(min(max_freeze, max(0.0, d - (s["out"] - s["in"]))), 2)
+
+def orcamento_palavras(duracao_s, max_freeze=MAX_FREEZE):
+    """Teto de palavras que ainda cabe no segmento mesmo com o freeze máximo esticando
+    o vídeo até o limite — é o mesmo teto que ajustar_extensao() aplica depois, calculado
+    ANTES do TTS pra não pagar (nem truncar às cegas) áudio que nunca vai caber."""
+    return int(round(PPM * (duracao_s + max_freeze)))
+
+def truncar_por_orcamento(texto, orcamento):
+    """Corta `texto` pra caber em `orcamento` palavras. Prioridade: última frase completa
+    que couber; se nem a primeira frase couber, cai pra fronteira de palavra. Nunca corta
+    no meio de uma palavra — é isso que faz a diferença entre um corte editorial (aceitável)
+    e o áudio estourando o `atrim` do render.py no meio de uma sílaba (Achado 1)."""
+    palavras = texto.split()
+    if len(palavras) <= orcamento or orcamento <= 0:
+        return texto if orcamento > 0 else ""
+    sentencas = [p for p in re.split(r"(?<=[.!?])\s+", texto.strip()) if p]
+    acc, usadas = [], 0
+    for sent in sentencas:
+        n = len(sent.split())
+        if usadas + n > orcamento:
+            break
+        acc.append(sent); usadas += n
+    if acc:
+        return " ".join(acc)
+    return " ".join(palavras[:orcamento])  # nem a 1ª frase coube: fronteira de palavra
 
 def roteiro_por_segmento(segmentos, unidades, llm):
     por_id = {u["id"]: u for u in unidades}
@@ -27,6 +53,13 @@ def roteiro_por_segmento(segmentos, unidades, llm):
         k = int(r.get("k", -1))
         if 0 <= k < len(segmentos):
             textos[k] = str(r.get("texto", "")).strip()
+    # Achado 1 (rodada de correção 1): trunca ANTES do TTS no orçamento de palavras do
+    # segmento (PPM × (duração + MAX_FREEZE)) — sem isso, um texto do LLM que estoura o
+    # orçamento vira um wav mais longo que d+ext, e o atrim=0:{d+ext} de montar_filtro
+    # corta o áudio sem fade, provavelmente no meio de uma palavra.
+    for k, s in enumerate(segmentos):
+        if textos[k]:
+            textos[k] = truncar_por_orcamento(textos[k], orcamento_palavras(s["out"] - s["in"]))
     return textos, uso
 
 def narrar(dir, cfg, provedor=None):

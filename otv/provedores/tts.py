@@ -10,10 +10,18 @@ from otv.util.ffmpeg import run
 # não "download".
 INEMAVOX = "http://localhost:8010"; CAMPO_ID = "id"; STATUS_OK = {"completed", "done", "finished"}; STATUS_ERRO = {"failed", "error"}
 ENDPOINT_AUDIO = "audio"
+STATUS_EM_ANDAMENTO = {"queued", "running", "pending", "processing"}
+# Achado 2 (rodada de correção 1): um status fora de STATUS_OK ∪ STATUS_ERRO ∪
+# STATUS_EM_ANDAMENTO (ex.: "cancelled", "crashed", campo ausente) hoje só derruba no
+# timeout de 600×2s (~20min) — desperdício operacional real, mesmo não sendo um hang
+# infinito. Se o MESMO status desconhecido se repetir N_DESCONHECIDO vezes seguidas,
+# desiste rápido com o status observado na mensagem.
+N_DESCONHECIDO = 15  # ~30s (intervalo de poll de 2s) antes de desistir de um status não reconhecido
 
 def tts_inemavox(texto, out, voz="rachel", engine="chatterbox"):
     r = requests.post(f"{INEMAVOX}/api/jobs/tts", json={"text": texto, "engine": engine, "voice": voz, "lang": "pt"}, timeout=60)
     r.raise_for_status(); jid = r.json()[CAMPO_ID]
+    ultimo_desconhecido, repeticoes = None, 0
     for _ in range(600):
         j = requests.get(f"{INEMAVOX}/api/jobs/{jid}", timeout=30).json()
         st = str(j.get("status", "")).lower()
@@ -21,6 +29,13 @@ def tts_inemavox(texto, out, voz="rachel", engine="chatterbox"):
             break
         if st in STATUS_ERRO:
             raise RuntimeError(f"inemavox falhou: {j.get('error') or j}")
+        if st in STATUS_EM_ANDAMENTO:
+            ultimo_desconhecido, repeticoes = None, 0
+        else:
+            repeticoes = repeticoes + 1 if st == ultimo_desconhecido else 1
+            ultimo_desconhecido = st
+            if repeticoes >= N_DESCONHECIDO:
+                raise RuntimeError(f"inemavox: status desconhecido {st!r} repetido {repeticoes}x seguidas (job {jid}) — desistindo")
         time.sleep(2)
     else:
         raise RuntimeError("inemavox: timeout")

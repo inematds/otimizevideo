@@ -24,7 +24,13 @@ def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=Fals
             # sem_audio_original=True precisa silenciar de verdade: "volume=0dB" é ganho
             # unitário (não muda nada), não mudo. "volume=0" (fator linear zero) é que zera.
             ganho = "volume=0" if sem_audio_original else f"volume={cama_db}dB"
-            a += f",{ganho}[o{k}];[{k + 1}:a]apad=whole_dur={d + ext:.3f},atrim=0:{d + ext:.3f}[n{k}];[o{k}][n{k}]amix=inputs=2:normalize=0"
+            # Achado 1 (rodada de correção 1 da Task 10): a Task 10 já trunca o roteiro pelo
+            # orçamento de palavras ANTES do TTS, mas a duração real do wav ainda não é
+            # perfeitamente previsível a partir da contagem de palavras — este afade=t=out é
+            # a rede de segurança: se o wav ainda chegar até o teto d+ext, ele desvanece em
+            # vez de cortar no meio de uma sílaba (mesma duração de 0.04s da trilha original).
+            a += (f",{ganho}[o{k}];[{k + 1}:a]apad=whole_dur={d + ext:.3f},atrim=0:{d + ext:.3f},"
+                  f"afade=t=out:st={max(0, d + ext - 0.04):.3f}:d=0.04[n{k}];[o{k}][n{k}]amix=inputs=2:normalize=0")
         fc.append(v + f"[v{k}]"); fc.append(a + f"[a{k}]"); entradas.append(f"[v{k}][a{k}]")
     fc.append("".join(entradas) + f"concat=n={len(segmentos)}:v=1:a=1[vc][ac]")
     fc.append("[ac]loudnorm=I=-16:TP=-1.5[a]")

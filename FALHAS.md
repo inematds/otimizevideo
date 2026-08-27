@@ -2,6 +2,7 @@
 
 | data | o que quebrou | menor correção | prompt \| infra |
 |---|---|---|---|
+| 2026-08-27 | Task 10 (`tts.py`): `GET /api/jobs/{id}/download` do inemavox devolve 404 pro job de TTS | trocado pra `GET /api/jobs/{id}/audio` (`ENDPOINT_AUDIO`) | infra |
 | 2026-08-27 | Task 9 (`render.py`): `%` solto na manchete (drawtext `expansion=normal`) apagava o texto sem erro | `expansion=none` no drawtext; teste passou a contar pixels de glifo, não brilho | prompt |
 | 2026-08-27 | Task 9 (`render.py`): `sem_audio_original=True` não silenciava — `volume=0dB` é ganho unitário | trocado por `volume=0` (silêncio real) quando `sem_audio_original=True` | prompt |
 | 2026-08-27 | Task 4 (`montar_unidades`): fala corrida sem pontuação/pausa crescia sem teto (unidade de 30s, 25% do orçamento) — teste do brief só cobria o caminho de `fins_segmento` | corte forçado roda em loop até caber, desempate pela maior pausa; `max_dur_s` virou configurável | prompt |
