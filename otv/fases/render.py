@@ -1,6 +1,6 @@
 import json, shutil, time
 from pathlib import Path
-from otv.util.ffmpeg import run
+from otv.util.ffmpeg import probe, run
 from otv.util.custos import registrar
 
 # Fonte usada pela manchete (drawtext). Passamos `fontfile=` explicitamente sempre que ela
@@ -12,7 +12,8 @@ from otv.util.custos import registrar
 FONTE_MANCHETE = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 
-def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=False, manchete=None):
+def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=False, manchete=None,
+                  dir=None, tamanho=None):
     """Filtro do render: UM input de vídeo por segmento (índices 0..N-1), narração depois.
 
     Por que um input por segmento e não `[0:v]trim` N vezes sobre um único input: com um
@@ -27,17 +28,37 @@ def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=Fals
 
     `render()` é quem monta os `-i` na ordem que os índices aqui assumem — os dois têm que
     mudar juntos.
+
+    Modo A+ (Task 10b): quando um segmento traz `substituir` (caminho relativo de um PNG),
+    o VÍDEO dele vem da imagem com Ken Burns lento em vez do trecho original — mas o input
+    `[k:a]` continua sendo lido, porque o ÁUDIO segue sendo o original. `dir` resolve o
+    caminho relativo e `tamanho` é (largura, altura, fps) do fonte: o filtro `concat` exige
+    tamanho e SAR iguais em todos os ramos, então a imagem tem que entrar na geometria do vídeo.
     """
+    W, H, FPS = tamanho or (1920, 1080, 25)
     fc = []; entradas = []
     n = len(segmentos)
     for k, s in enumerate(segmentos):
         d = s["out"] - s["in"]; ext = float(s.get("estender_s") or 0)
-        # o input k já vem cortado por -ss/-t, com timestamps começando em 0; o trim=0:d é
-        # a garantia de duração exata (o -t da entrada pode arredondar por quadro).
-        v = f"[{k}:v]trim=0:{d},setpts=PTS-STARTPTS"
+        subst = s.get("substituir")
+        if subst:
+            # zoompan produz d=N quadros a partir da imagem única, então ele já cobre a
+            # extensão (d+ext) — nada de tpad aqui (tpad clona o último quadro de um vídeo).
+            # z sobe devagar até 1.12 com o centro fixo: Ken Burns lento, sem deriva.
+            caminho = str(Path(dir) / subst) if dir else str(subst)
+            nq = max(1, round((d + ext) * FPS))
+            v = (f"movie={caminho},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
+                 f"zoompan=z='min(zoom+0.0004,1.12)':d={nq}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+                 f"s={W}x{H}:fps={FPS},setsar=1,format=yuv420p,setpts=PTS-STARTPTS")
+        else:
+            # o input k já vem cortado por -ss/-t, com timestamps começando em 0; o trim=0:d é
+            # a garantia de duração exata (o -t da entrada pode arredondar por quadro).
+            v = f"[{k}:v]trim=0:{d},setpts=PTS-STARTPTS"
         a = f"[{k}:a]atrim=0:{d},asetpts=PTS-STARTPTS,afade=t=in:d=0.04,afade=t=out:st={max(0, d - 0.04):.3f}:d=0.04"
         if ext > 0:
-            v += f",tpad=stop_mode=clone:stop_duration={ext}"; a += f",apad=pad_dur={ext}"
+            if not subst:
+                v += f",tpad=stop_mode=clone:stop_duration={ext}"
+            a += f",apad=pad_dur={ext}"
         if narracao and narracao[k]:
             # sem_audio_original=True precisa silenciar de verdade: "volume=0dB" é ganho
             # unitário (não muda nada), não mudo. "volume=0" (fator linear zero) é que zera.
@@ -119,7 +140,14 @@ def render(dir, cfg, rapido=False, sem_audio_original=False):
             cmd += ["-ss", f"{s['in']}", "-t", f"{s['out'] - s['in']}", "-i", video]
         for w in (wavs or []):
             cmd += ["-i", str(w)]
-        cmd += ["-filter_complex", montar_filtro(segs, wavs, sem_audio_original=sem_audio_original, manchete=plan.get("manchete")),
+        # geometria vem do ARQUIVO, não do metadata.json: o concat exige que a imagem do
+        # modo A+ entre com o mesmo tamanho/SAR dos ramos de vídeo, e metadata.json pode não
+        # ter esses campos (spike antigo, pasta montada à mão) — aí o default silencioso
+        # estouraria o render com "parameters do not match".
+        i = probe(video)
+        tamanho = (i["largura"], i["altura"], i["fps"])
+        cmd += ["-filter_complex", montar_filtro(segs, wavs, sem_audio_original=sem_audio_original,
+                                                 manchete=plan.get("manchete"), dir=dir, tamanho=tamanho),
                 "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-preset", "medium",
                 "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out)]
         run(cmd)

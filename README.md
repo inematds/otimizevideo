@@ -133,6 +133,7 @@ python3 otv.py transcrever <id> --provedor groq
 python3 otv.py cenas <id> --classificar --provedor glm
 python3 otv.py pontuar <id> --modo A --alvo 120 --provedor glm
 python3 otv.py selecionar <id> --modo A --alvo 120
+python3 otv.py substituir <id> --provedor fal     # modo A+: troca o apresentador por ilustração
 python3 otv.py render <id> --rapido
 python3 otv.py narrar <id> --provedor inemavox
 
@@ -256,3 +257,26 @@ Casos reais já encontrados neste projeto (changelog completo em `FALHAS.md`):
 - Plano de implementação (tasks): [`docs/superpowers/plans/2026-08-27-otimizevideo.md`](docs/superpowers/plans/2026-08-27-otimizevideo.md)
 - Pesquisa de provedores (preços, modelos, comparação): [`docs/pesquisa-provedores-2026-08-27.md`](docs/pesquisa-provedores-2026-08-27.md)
 - Changelog de falhas: [`FALHAS.md`](FALHAS.md)
+
+
+## 12. Modo A+ — substituir o apresentador por ilustração
+
+`--substituir gerado` (no `run`) ou a fase `otv substituir <id>` gera uma ilustração 16:9 por
+segmento marcado como `talking_head` e troca **só o vídeo** desses trechos: o áudio continua
+sendo o original, então a fala não muda em nada. Só faz sentido depois que o visual foi
+classificado (`otv cenas --classificar`), porque é o campo `visual` do plano que decide o que
+é apresentador.
+
+```bash
+python3 otv.py run <url> --modo A --visual glm --substituir gerado
+```
+
+As imagens ficam em `trabalho/<id>/subst/seg_NN.png` e o caminho relativo é anotado em cada
+segmento do `plan.json` (`"substituir": "subst/seg_00.png"`). A fase é idempotente: um PNG que
+já existe é reaproveitado sem nova chamada paga — use `--forcar` para regerar. O render monta
+esses trechos com `movie=…,zoompan` (Ken Burns lento) na mesma geometria do vídeo, e o
+`otv status <id>` marca com `→img` o que já foi trocado.
+
+Provedor de imagem: `imagem: fal` no `config.yaml` (flux-2-klein via fal.ai, `FAL_KEY` lida dos
+`.env` de sempre). É o único provedor implementado — trocar é escrever outra classe com o mesmo
+método `gerar(prompt, destino)` em `otv/provedores/imagem.py`.

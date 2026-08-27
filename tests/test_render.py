@@ -228,3 +228,51 @@ def test_run_ffmpeg_tem_teto_de_memoria():
         assert pref[0] == "systemd-run" and f"MemoryMax={MEMMAX}" in pref
     else:
         assert pref == []
+
+
+# --- Task 10b: modo A+ (segmento talking_head trocado por ilustração) ------
+
+def _png_solido(path, cor="red", w=320, h=180):
+    from otv.util.ffmpeg import run
+    run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"color=c={cor}:s={w}x{h}",
+         "-frames:v", "1", str(path)])
+    return path
+
+
+def test_montar_filtro_substituir_usa_movie_e_mantem_audio_original(tmp_path):
+    # O vídeo do segmento 0 vem da imagem (movie=...,zoompan), mas o áudio continua sendo
+    # o [0:a] do input original -- é isso que faz o modo A+ preservar a fala.
+    segs = [{"in": 0.0, "out": 2.0, "estender_s": 0, "substituir": "subst/seg_00.png"},
+            {"in": 5.0, "out": 7.0, "estender_s": 0}]
+    f = montar_filtro(segs, dir=tmp_path, tamanho=(1920, 1080, 25))
+    assert f"movie={tmp_path / 'subst/seg_00.png'}" in f
+    assert "zoompan=" in f and "d=50:" in f          # 2.0s * 25fps
+    assert "[0:v]trim=" not in f                      # o vídeo original do seg 0 não é usado
+    assert "[0:a]atrim=0:2.0" in f                    # ...mas o áudio dele, sim
+    assert "[1:v]trim=0:2.0" in f                     # segmento não-substituído segue igual
+
+
+def test_montar_filtro_substituir_absorve_a_extensao_sem_tpad(tmp_path):
+    # zoompan gera d=N quadros a partir de uma imagem só, então ele já cobre d+ext --
+    # tpad (que clona o último quadro de um vídeo) não faz sentido aqui.
+    f = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 1.0, "substituir": "s.png"}],
+                      dir=tmp_path, tamanho=(1920, 1080, 25))
+    assert "d=75:" in f and "tpad=" not in f          # (2.0+1.0)*25
+    assert "apad=pad_dur=1.0" in f                    # o áudio ainda é esticado
+
+
+def test_render_substituir_troca_o_video_e_preserva_duracao(video_teste, tmp_path):
+    (tmp_path / "subst").mkdir()
+    _png_solido(tmp_path / "subst" / "seg_00.png", "red")
+    _preparar(tmp_path, video_teste, "subst", {
+        "modo": "A", "alvo_s": 3, "total_s": 3.0, "narracao": None,
+        "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0, "substituir": "subst/seg_00.png"},
+                      {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]})
+    out = render(tmp_path, {"saida": str(tmp_path / "saida")})
+    assert abs(probe(out)["duracao_s"] - 3.0) < 0.15
+    # em t=0.7 (dentro do segmento substituído) o quadro tem que ser vermelho chapado,
+    # não o testsrc colorido da fixture
+    from PIL import Image
+    frame = tmp_path / "f_subst.png"; thumb(out, 0.7, frame)
+    r, g, b = Image.open(frame).convert("RGB").resize((1, 1)).getpixel((0, 0))
+    assert r > 150 and g < 80 and b < 80, f"segmento não foi substituído pela imagem: RGB={(r, g, b)}"

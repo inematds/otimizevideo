@@ -3,8 +3,10 @@ import copy, yaml
 
 DEFAULTS = {
     "transcricao": "groq", "visual": "local", "pontuacao": "glm", "tts": "inemavox",
+    "imagem": "fal",
     "modelos": {"glm": "z-ai/glm-5.3-flash", "gemini": "google/gemini-2.5-flash-lite",
-                "ollama": "qwen3.8:27b", "whisper_local": "turbo", "claude_cli": "sonnet"},
+                "ollama": "qwen3.8:27b", "whisper_local": "turbo", "claude_cli": "sonnet",
+                "fal_imagem": "fal-ai/flux-2/klein/9b"},
     "openrouter": {"reasoning_effort": "low", "max_tokens": 20000},
     "selecao": {"alvo_s": 120, "tolerancia": 0.25, "min_segmento_s": 3, "min_segmento_ideal_s": 8,
                 "pausa_fronteira_ms": 400, "folga_ms": 120, "cota_topico_pct": 40, "nota_minima": 5,
