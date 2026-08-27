@@ -19,7 +19,12 @@ def montar_prompt(unidades, modo, alvo_s, titulo, duracao_s):
 def pontuar(dir, cfg, modo="A", alvo_s=None, provedor=None, forcar=False):
     dir = Path(dir); out = dir / "notas.json"
     if out.exists() and not forcar:
-        return out
+        # o prompt de pontuação MUDA com o modo (MODOS[modo] entra no template), então
+        # reaproveitar notas de outro modo é validar o modo B com julgamento de modo A.
+        # Só pula quando o modo bate; notas antigas sem o campo contam como "A" (era o
+        # único modo que existia quando elas foram escritas).
+        if json.loads(out.read_text()).get("modo", "A") == modo:
+            return out
     us = json.loads((dir / "unidades.json").read_text())["unidades"]
     meta = json.loads((dir / "metadata.json").read_text())
     llm = criar_llm(cfg, provedor or cfg["pontuacao"]); t0 = time.time()

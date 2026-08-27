@@ -51,3 +51,28 @@ def test_pontuar_idempotente_sem_forcar(tmp_path, monkeypatch):
     monkeypatch.setattr(P, "criar_llm", boom)
     out = pontuar(tmp_path, {"pontuacao": "glm", "selecao": {"alvo_s": 120}}, modo="A")
     assert json.loads(out.read_text()) == {"ja": "existe"}
+
+
+def test_pontuar_nao_reaproveita_notas_de_outro_modo(tmp_path, monkeypatch):
+    # O prompt muda com o modo (MODOS[modo] entra no template) -- reaproveitar notas de
+    # modo A num run de modo B validaria o modo B com julgamento do modo A.
+    import json
+    import otv.fases.pontuar as P
+    (tmp_path / "notas.json").write_text(json.dumps({"notas": [{"id": 0, "nota": 5}], "modo": "A"}))
+    (tmp_path / "unidades.json").write_text(json.dumps({"unidades": [{"id": 0, "ini": 0.0, "fim": 2.0, "dur": 2.0, "texto": "oi"}]}))
+    (tmp_path / "metadata.json").write_text(json.dumps({"titulo": "t", "duracao_s": 100.0}))
+    chamou = []
+
+    class LLMFake:
+        nome = "fake"
+        def chat_json(self, prompt, imagens=None):
+            chamou.append(prompt)
+            return {"notas": [{"id": 0, "nota": 9}]}, {"cost": 0.0}
+
+    monkeypatch.setattr(P, "criar_llm", lambda cfg, slot: LLMFake())
+    cfg = {"pontuacao": "fake", "selecao": {"alvo_s": 120}}
+    P.pontuar(tmp_path, cfg, modo="A")                    # mesmo modo: reaproveita
+    assert chamou == []
+    P.pontuar(tmp_path, cfg, modo="B")                    # modo diferente: re-pontua
+    assert len(chamou) == 1
+    assert json.loads((tmp_path / "notas.json").read_text())["modo"] == "B"
