@@ -1813,6 +1813,39 @@ illustration, dark, no text"), salvar em `subst/seg_NN.png`, e no render trocar 
 do áudio original. Provedor de imagem: o que o usuário já usa (flux2-klein via fal/Magnific conforme
 `config.yaml → imagem:`). Entra depois das Tasks 1–11; testes com gerador mockado que escreve um PNG sólido.
 
+**Task 6 — provedor `claude_cli` (Claude Code headless, sai da assinatura, sem API key).** Verificado em
+2026-08-27: `echo '<prompt>' | claude -p --model sonnet --output-format text` devolve o JSON limpo. Adicionar em
+`otv/provedores/llm.py`:
+```python
+import subprocess, tempfile
+class ClaudeCLI(LLM):
+    def __init__(self, modelo="sonnet"):
+        self.modelo, self.nome = modelo, f"claude_cli/{modelo}"
+    def _chamar(self, prompt, imagens):
+        if imagens:  # Claude Code lê imagens por caminho: cita os arquivos no prompt
+            prompt = "Leia estas imagens (uma por cena, na ordem):\n" + "\n".join(f"imagem {i}: {Path(p).resolve()}" for i, p in enumerate(imagens)) + "\n\n" + prompt
+        r = subprocess.run(["claude", "-p", "--model", self.modelo, "--output-format", "text",
+                            "--allowedTools", "Read" if imagens else ""],
+                           input=prompt, capture_output=True, text=True, timeout=1800)
+        if r.returncode != 0:
+            raise RuntimeError(f"claude -p falhou: {r.stderr[-400:]}")
+        return r.stdout, {"provedor": "assinatura", "cost": 0.0}
+```
+e em `criar_llm`: `if slot == "claude_cli": return ClaudeCLI(cfg["modelos"].get("claude_cli", "sonnet"))`.
+`config.yaml`/`DEFAULTS` ganham `modelos.claude_cli: sonnet` e os slots `pontuacao`/`visual` aceitam `claude_cli`.
+Teste (mock de `subprocess.run`):
+```python
+def test_claude_cli_chama_binario_e_parseia(monkeypatch):
+    class R: returncode = 0; stdout = '{"ok":3}'; stderr = ""
+    chamadas = []
+    monkeypatch.setattr(L.subprocess, "run", lambda cmd, **kw: (chamadas.append((cmd, kw["input"])), R())[1])
+    resp, uso = L.ClaudeCLI("sonnet").chat_json("oi")
+    assert resp == {"ok": 3} and chamadas[0][0][:4] == ["claude", "-p", "--model", "sonnet"] and uso["cost"] == 0.0
+```
+Limites: sem vídeo (só imagens — compatível com a técnica de miniaturas); mais lento que a API; em lote grande
+respeitar o rate limit da assinatura. **Default pessoal recomendado:** `pontuacao: claude_cli` (sonnet); `glm`
+como fallback barato pra automação.
+
 **Task 12 — validação** ganha: (a) `status` mostra `manchete` e quais segmentos são `talking_head`;
 (b) rodar `--substituir gerado` no vídeo de exemplo e conferir que os 7 trechos com apresentador foram
 trocados e o áudio continua o original; (c) confirmar que o último segmento contém a unidade do `fecho`.

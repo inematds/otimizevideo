@@ -100,13 +100,14 @@ fonte ─▶ 1 ingest ─▶ video.mp4 · audio.opus · metadata.json
 
 ```yaml
 transcricao: groq          # groq | whisper_local | whisperx
-visual:      local         # local (rosto+cena, R$0) | glm | gemini | qwen | gemini_video
-pontuacao:   glm           # glm | gemini | qwen | claude
+visual:      local         # local (rosto+cena, R$0) | claude_cli | glm | gemini | gemini_video
+pontuacao:   claude_cli    # claude_cli (Claude Code headless, assinatura) | glm | gemini | ollama
 tts:         inemavox      # inemavox | elevenlabs | fish
 modelos:
+  claude_cli: sonnet       # `claude -p --model sonnet`; opus se quiser mais qualidade
   glm:    z-ai/glm-5.3-flash
   gemini: google/gemini-2.5-flash-lite
-  qwen:   qwen/qwen3.5-flash-02-23
+  ollama: qwen3.8:27b
 selecao:
   alvo_s: 120
   tolerancia: 0.25
