@@ -107,7 +107,10 @@ def concatenar_cta(corpo, cfg, tamanho=None):
     duas vezes hoje com "parameters do not match". O `aresample=async=1` e o `fps` no ramo
     de vídeo normalizam os dois lados antes do concat.
     """
-    cta = Path(cfg.get("cta", "assets/cta.mp4")).expanduser()
+    caminho = cfg.get("cta", "assets/cta.mp4")
+    if not caminho:                      # "" desliga o CTA (Path("") vira "." e existe — cuidado)
+        return corpo
+    cta = Path(caminho).expanduser()
     if not cta.exists():
         return corpo
     corpo = Path(corpo)

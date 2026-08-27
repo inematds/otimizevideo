@@ -54,7 +54,7 @@ def test_montar_filtro_estende_com_freeze():
 def test_render_duracao_bate(video_teste, tmp_path):
     _preparar(tmp_path, video_teste, "t", {"modo": "A", "alvo_s": 3, "total_s": 3.0, "narracao": None,
         "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0}, {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]})
-    out = render(tmp_path, {"saida": str(tmp_path / "saida")})
+    out = render(tmp_path, {"saida": str(tmp_path / "saida"), "cta": "", "fade_final_s": 0})
     assert abs(probe(out)["duracao_s"] - 3.0) < 0.15
     assert (tmp_path / "saida" / "t" / "output.mp4").exists()
 
@@ -107,7 +107,7 @@ def test_render_manchete_renderiza_de_verdade(video_teste, tmp_path):
         "modo": "A", "alvo_s": 5.5, "total_s": 5.5, "narracao": None, "manchete": "A grande tese do vídeo",
         "segmentos": [{"in": 0.0, "out": 3.0, "unidades": [0], "estender_s": 0},
                       {"in": 3.0, "out": 5.5, "unidades": [1], "estender_s": 0}]})
-    out = render(tmp_path, {"saida": str(tmp_path / "saida")})
+    out = render(tmp_path, {"saida": str(tmp_path / "saida"), "cta": "", "fade_final_s": 0})
     assert abs(probe(out)["duracao_s"] - 5.5) < 0.15
 
     # Achado 2 da rodada de correção 1: brilho médio da faixa não detecta manchete em
@@ -130,7 +130,7 @@ def test_render_manchete_com_porcentagem_nao_apaga_o_texto(video_teste, tmp_path
         "manchete": "100% de certeza de verdade",
         "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0},
                       {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]})
-    out = render(tmp_path, {"saida": str(tmp_path / "saida")})
+    out = render(tmp_path, {"saida": str(tmp_path / "saida"), "cta": "", "fade_final_s": 0})
     glifo = _pixels_glifo(out, 1.0, tmp_path, "pct")
     assert glifo > 200, f"manchete com '%' sumiu (bug do Stray % voltou): pixels de glifo = {glifo}"
     print(f"GLIFO_PIXELS_COM_PERCENTUAL t=1: {glifo}")
@@ -142,7 +142,7 @@ def test_render_manchete_caracteres_perigosos_render_de_verdade(video_teste, tmp
         "manchete": "Título: 'assim' e \\barra",
         "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0},
                       {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]})
-    out = render(tmp_path, {"saida": str(tmp_path / "saida")})
+    out = render(tmp_path, {"saida": str(tmp_path / "saida"), "cta": "", "fade_final_s": 0})
     assert out.exists()
     assert abs(probe(out)["duracao_s"] - 3.0) < 0.15
 
@@ -175,7 +175,7 @@ def test_render_narracao_com_null_falha_com_mensagem_clara(video_teste, tmp_path
         "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0},
                       {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]})
     with pytest.raises(RuntimeError, match="nunca null"):
-        render(tmp_path, {"saida": str(tmp_path / "saida")})
+        render(tmp_path, {"saida": str(tmp_path / "saida"), "cta": "", "fade_final_s": 0})
 
 
 def test_render_rapido_produz_mp4_legivel(video_teste, tmp_path):
@@ -187,7 +187,7 @@ def test_render_rapido_produz_mp4_legivel(video_teste, tmp_path):
         "modo": "A", "alvo_s": 3, "total_s": 3.0, "narracao": None,
         "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0},
                       {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]})
-    out = render(tmp_path, {"saida": str(tmp_path / "saida")}, rapido=True)
+    out = render(tmp_path, {"saida": str(tmp_path / "saida"), "cta": "", "fade_final_s": 0}, rapido=True)
     assert out.exists()
     d = probe(out)["duracao_s"]
     assert d > 0
@@ -211,7 +211,7 @@ def test_render_nao_bufferiza_video_inteiro(video_teste, tmp_path):
     f = montar_filtro(plan["segmentos"])
     assert "[1:v]" in f, "segundo segmento tem que vir de um input próprio, não de [0:v]"
     assert "trim=0:" in f and "trim=5.0" not in f, "trim tem que ser relativo ao input já seekado"
-    out = render(tmp_path, {"saida": str(tmp_path / "saida")})
+    out = render(tmp_path, {"saida": str(tmp_path / "saida"), "cta": "", "fade_final_s": 0})
     # e o corte esparso continua correto: 1s do início + 1s a partir dos 5s = 2s
     assert abs(probe(out)["duracao_s"] - 2.0) < 0.15
 
@@ -268,7 +268,7 @@ def test_render_substituir_troca_o_video_e_preserva_duracao(video_teste, tmp_pat
         "modo": "A", "alvo_s": 3, "total_s": 3.0, "narracao": None,
         "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0, "substituir": "subst/seg_00.png"},
                       {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]})
-    out = render(tmp_path, {"saida": str(tmp_path / "saida")})
+    out = render(tmp_path, {"saida": str(tmp_path / "saida"), "cta": "", "fade_final_s": 0})
     assert abs(probe(out)["duracao_s"] - 3.0) < 0.15
     # em t=0.7 (dentro do segmento substituído) o quadro tem que ser vermelho chapado,
     # não o testsrc colorido da fixture
@@ -322,3 +322,12 @@ def test_render_cola_o_cta_no_fim(video_teste, tmp_path):
     out = render(tmp_path, {"saida": str(tmp_path / "saida"), "cta": str(cta), "fade_final_s": 0.5})
     # 3.0s de corpo + 2.0s de CTA
     assert abs(probe(out)["duracao_s"] - 5.0) < 0.25, probe(out)
+
+
+def test_concatenar_cta_string_vazia_desliga(tmp_path):
+    # Path("") vira "." — que EXISTE. Sem o guard explícito, cta:"" no config passaria
+    # pelo `exists()` e o ffmpeg receberia um diretório como input.
+    from otv.fases.render import concatenar_cta
+    corpo = tmp_path / "output.mp4"; corpo.write_bytes(b"x")
+    assert concatenar_cta(corpo, {"cta": ""}) == corpo
+    assert corpo.read_bytes() == b"x"
