@@ -3,6 +3,10 @@
 CLI que pega um vídeo longo (aula, podcast, palestra — 20 a 30 min) e devolve um corte de
 **~2 minutos** com o melhor conteúdo, cortado com precisão de palavra.
 
+## 📖 Guia de uso
+
+Guia completo (landing + passo a passo): **https://inematds.github.io/otimizevideo/guia/**
+
 ## 1. O que faz
 
 `otv` roda um vídeo por um pipeline de fases (transcrição → detecção de cena →

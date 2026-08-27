@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>otimizevideo — 30 minutos viram 2, sem o modelo escolher os cortes</title>
+<meta name="description" content="CLI que condensa vídeo longo em ~2 minutos. O modelo pontua unidades numeradas; o código converte id em tempo e corta. Provedores trocáveis por fase.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c0c10; --bg2:#14141b; --card:#16161e; --line:#272730;
+    --txt:#e9e9ee; --mut:#9a9aa6; --amb:#E2A23B; --amb2:#f0c070; --sky:#38bdf8; --pro:#cbd5e1;
+    color-scheme:dark;
+  }
+  body.light{
+    --bg:#f6f7f9; --bg2:#eceef2; --card:#ffffff; --line:#e1e3ea;
+    --txt:#1a1a22; --mut:#5b5b68; --amb:#b9791d; --amb2:#a16207; --sky:#0369a1; --pro:#b45309;
+    color-scheme:light;
+  }
+  body.light .hero .glow{opacity:.5}
+  body.light pre{background:#0e0e14;color:#d6d6e0}
+  body.light pre .c{color:#8a8a98}
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.65 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  h1,h2,h3{font-family:Sora,sans-serif;line-height:1.15;margin:0}
+  a{color:var(--amb);text-decoration:none}
+  code,pre{font-family:"JetBrains Mono",monospace}
+  .wrap{max-width:1160px;margin:0 auto;padding:0 22px}
+  .mut{color:var(--mut)} .amb{color:var(--amb)}
+  .chip{display:inline-block;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--amb);font-weight:600;font-family:Sora}
+  nav{position:sticky;top:0;z-index:30;backdrop-filter:blur(12px);background:rgba(12,12,16,.78);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;gap:22px;height:60px}
+  nav .brand{display:flex;align-items:center;gap:8px;font-family:Sora;font-weight:800;letter-spacing:-.02em;color:var(--amb)}
+  nav .brand .emoji{font-size:1.25rem}
+  nav .sep{color:var(--mut);opacity:.45}
+  nav .inema{color:var(--sky);font-weight:600;font-size:.88rem;font-family:Sora}
+  nav .inema:hover{filter:brightness(1.15)}
+  nav .pro{color:var(--pro);font-weight:600;font-size:.88rem;font-family:Sora}
+  nav .pro:hover{filter:brightness(1.15)}
+  nav .clubpro{display:inline-flex;align-items:center;gap:6px}
+  nav .links{margin-left:auto;display:flex;align-items:center;gap:20px;font-size:.92rem}
+  nav .links a.sec{color:var(--mut)} nav .links a.sec:hover{color:var(--txt)}
+  .tgl{background:var(--bg2);border:1px solid var(--line);color:var(--txt);width:38px;height:38px;border-radius:10px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem}
+  .tgl:hover{border-color:var(--amb)}
+  .btn{display:inline-block;background:var(--amb);color:#1a1206;font-weight:600;padding:.6em 1.05em;border-radius:10px;font-family:Sora}
+  .btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
+  @media(max-width:760px){nav .links a.sec{display:none}}
+  .hero{position:relative;overflow:hidden;border-bottom:1px solid var(--line)}
+  .hero .glow{position:absolute;inset:-40% -20% auto auto;width:70%;height:600px;background:radial-gradient(closest-side,rgba(226,162,59,.22),transparent 70%);pointer-events:none}
+  .hero .wrap{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:center;padding:74px 22px}
+  .hero h1{font-size:clamp(2.2rem,5vw,3.5rem);font-weight:800;letter-spacing:-.025em}
+  .hero p.lead{font-size:1.18rem;color:var(--mut);margin:1.1em 0 1.6em;max-width:34ch}
+  .hero .cta{display:flex;gap:12px;flex-wrap:wrap}
+  .hero figure{margin:0;border-radius:16px;overflow:hidden;border:1px solid var(--line);box-shadow:0 30px 80px -30px #000}
+  .hero figure img{width:100%;display:block}
+  @media(max-width:780px){.hero .wrap{grid-template-columns:1fr;padding:48px 22px}}
+  section{padding:62px 0;border-bottom:1px solid var(--line)}
+  section h2{font-size:clamp(1.5rem,3.4vw,2.1rem);font-weight:800;letter-spacing:-.02em}
+  section .sub{color:var(--mut);margin:.6em 0 2em;max-width:62ch}
+  .grid{display:grid;gap:16px}
+  .g3{grid-template-columns:repeat(3,1fr)} .g4{grid-template-columns:repeat(4,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:820px){.g3,.g4{grid-template-columns:1fr 1fr}}
+  @media(max-width:540px){.g2,.g3,.g4{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .card h3{font-size:1.05rem;margin-bottom:.4em}
+  .card p{color:var(--mut);font-size:.92rem;margin:0}
+  .num{display:inline-flex;width:30px;height:30px;align-items:center;justify-content:center;border-radius:8px;background:rgba(226,162,59,.14);color:var(--amb);font-family:Sora;font-weight:800;font-size:.9rem;margin-bottom:.7em}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+  .flow span{background:var(--bg2);border:1px solid var(--line);border-radius:999px;padding:.45em .9em;font-size:.85rem;font-family:Sora;font-weight:600}
+  .flow .arr{color:var(--amb);border:none;background:none;padding:0 .1em}
+  pre{background:#0a0a0e;border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow:auto;font-size:.86rem;line-height:1.6;color:#d6d6e0}
+  pre .c{color:#6f6f7c} pre .k{color:var(--amb2)} pre .s{color:#9ece6a}
+  .step{display:grid;grid-template-columns:46px 1fr;gap:16px;margin-bottom:26px}
+  .step .b{width:46px;height:46px;border-radius:12px;background:var(--amb);color:#1a1206;font-family:Sora;font-weight:800;font-size:1.25rem;display:flex;align-items:center;justify-content:center}
+  .step h3{font-size:1.12rem;margin-bottom:.3em}
+  .step p{color:var(--mut);margin:.2em 0 .7em}
+  .ex{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:680px){.ex{grid-template-columns:1fr}}
+  .ex figure{margin:0;border-radius:14px;overflow:hidden;border:1px solid var(--line)}
+  .ex figure img{width:100%;display:block}
+  .ex figcaption{padding:12px 14px;font-size:.88rem;color:var(--mut);background:var(--card)}
+  .phase{display:flex;gap:14px;padding:16px 0;border-bottom:1px solid var(--line)}
+  .phase:last-child{border:none}
+  .phase .tag{flex:0 0 92px;font-family:Sora;font-weight:800;color:var(--amb)}
+  .phase .d strong{display:block;margin-bottom:.2em}
+  .phase .d span{color:var(--mut);font-size:.92rem}
+  footer{padding:46px 0;text-align:center;color:var(--mut);font-size:.9rem}
+  .pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:.3em .8em;font-size:.78rem;color:var(--mut);margin:0 4px}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="brand" href="#top"><span class="emoji">✂️</span> otimizevideo</a>
+  <span class="sep">|</span>
+  <span class="clubpro">
+    <a class="inema" href="https://inema.club" target="_blank" rel="noopener">INEMA.CLUB</a>
+    <span class="sep">-</span>
+    <a class="pro" href="https://inema.pro" target="_blank" rel="noopener">PRO</a>
+  </span>
+  <div class="links">
+    <a class="sec" href="#oque">O que é</a>
+    <a class="sec" href="#fluxo">Como funciona</a>
+    <a class="sec" href="#guia">Guia de uso</a>
+    <a class="sec" href="#exemplos">Exemplos</a>
+    <a class="sec" href="#roadmap">Roadmap</a>
+    <button class="tgl" id="themeToggle" aria-label="Alternar tema" title="Alternar tema">🌙</button>
+    <a class="btn" href="https://github.com/inematds/otimizevideo" target="_blank" rel="noopener">GitHub</a>
+  </div>
+</div></nav>
+
+<header class="hero" id="top">
+  <div class="glow"></div>
+  <div class="wrap">
+    <div>
+      <span class="chip">CLI · Python · ffmpeg</span>
+      <h1>30 minutos viram 2 — e o modelo <span class="amb">nunca</span> escolhe onde cortar</h1>
+      <p class="lead">O <code>otv</code> transcreve, fatia a fala em unidades numeradas e pede ao modelo só uma nota de 0 a 10 por id. Quem converte id em segundo e corta é o código — por isso o corte nunca cai no meio de uma palavra e rodar duas vezes dá o mesmo resultado.</p>
+      <div class="cta">
+        <a class="btn" href="#guia">Começar o guia</a>
+        <a class="btn ghost" href="https://github.com/inematds/otimizevideo" target="_blank" rel="noopener">Ver no GitHub</a>
+      </div>
+    </div>
+    <figure><img src="assets/hero.png" alt="Capa do projeto otimizevideo"></figure>
+  </div>
+</header>
+
+<section id="oque"><div class="wrap">
+  <span class="chip">O que é</span>
+  <h2>Um cortador de vídeo em que a decisão é auditável</h2>
+  <p class="sub">Aula, podcast ou palestra de 20 a 30 minutos entram; sai um <code>output.mp4</code> de cerca de dois minutos com o melhor conteúdo. Cada fase grava um JSON que dá pra ler, editar e re-renderizar sem gastar nada.</p>
+  <div class="grid g3">
+    <div class="card"><h3>🎯 O modelo pontua, não corta</h3><p>Ele vê <code>[042] 4.2s talking_head "texto"</code> e devolve uma nota. O tempo vem da transcrição com timestamp por palavra, então a fronteira do corte já é uma fronteira de palavra real — nunca um timestamp inventado.</p></div>
+    <div class="card"><h3>🔁 Determinístico e barato de refazer</h3><p>A escolha (mochila por nota, cota por tópico, âncoras de gancho e fecho, coesão) é código. Mesmo <code>notas.json</code>, mesmo <code>plan.json</code>. Editar o plano à mão e re-renderizar custa zero chamada de modelo.</p></div>
+    <div class="card"><h3>🔌 Provedor trocável por fase</h3><p>Transcrição no Groq ou Whisper local; pontuação no GLM, Gemini, Ollama ou no próprio Claude Code; TTS no inemavox ou ElevenLabs; imagem no flux-2-klein. Uma linha no <code>config.yaml</code> ou uma flag.</p></div>
+  </div>
+</div></section>
+
+<section id="fluxo"><div class="wrap">
+  <span class="chip">Como funciona</span>
+  <h2>Nove fases, um JSON entre cada uma</h2>
+  <p class="sub">Cada fase lê o artefato da anterior e grava o seu. Rodar uma fase de novo não refaz as outras — e o que já existe é reaproveitado, a menos que você peça <code>--forcar</code>.</p>
+  <div class="flow">
+    <span>ingest</span><span class="arr">→</span>
+    <span>transcrever</span><span class="arr">→</span>
+    <span>cenas</span><span class="arr">→</span>
+    <span>classificar</span><span class="arr">→</span>
+    <span>unidades</span><span class="arr">→</span>
+    <span>pontuar</span><span class="arr">→</span>
+    <span>selecionar</span><span class="arr">→</span>
+    <span>narrar</span><span class="arr">→</span>
+    <span>render</span>
+  </div>
+  <div class="grid g3" style="margin-top:26px">
+    <div class="card"><h3>Modo A — condensado</h3><p>O padrão. Mantém o apresentador e corta só o que rende. Variante A+ (<code>--substituir gerado</code>) troca os trechos de apresentador por ilustração gerada e <strong>preserva o áudio original</strong>.</p></div>
+    <div class="card"><h3>Modo B — sem apresentador</h3><p>Fica só com slide, demo de tela e gráfico; um roteiro em PT-BR é escrito pelo modelo e narrado por TTS, com o áudio original virando cama a −18 dB.</p></div>
+    <div class="card"><h3>Modo C — só visual</h3><p>Mesma seleção do B, sem a camada de narração — para quando o material visual já se explica.</p></div>
+  </div>
+</div></section>
+
+<section id="pre"><div class="wrap">
+  <span class="chip">Pré-requisitos</span>
+  <h2>O que precisa estar na máquina</h2>
+  <p class="sub">Nada de container nem build. Python 3.12, ffmpeg e as chaves nos <code>.env</code> de sempre.</p>
+  <div class="grid g3">
+    <div class="card"><h3>ffmpeg e ffprobe</h3><p>Fazem todo o corte, o mix de áudio e a manchete. O render roda dentro de um scope com teto de memória.</p><pre><span class="c"># Debian/Ubuntu</span>
+<span class="k">sudo apt install</span> ffmpeg</pre></div>
+    <div class="card"><h3>Dependências Python</h3><p>yt-dlp para baixar, PySceneDetect para achar os cortes, mediapipe e OpenCV para detectar rosto.</p><pre><span class="c"># na raiz do projeto</span>
+<span class="k">pip install -r</span> requirements.txt</pre></div>
+    <div class="card"><h3>Chaves de API</h3><p>Lidas em runtime de <code>~/projetos/openpcbotv2/.env</code> e <code>~/projetos/wifi/.env</code>. Nenhuma chave é copiada para o projeto.</p><pre><span class="c"># o que é usado</span>
+GROQ_API_KEY
+OPENROUTER_API_KEY
+FAL_KEY  <span class="c"># só no modo A+</span></pre></div>
+  </div>
+</div></section>
+
+<section id="guia"><div class="wrap">
+  <span class="chip">Guia de uso · passo a passo</span>
+  <h2>Do link ao corte de dois minutos</h2>
+  <p class="sub">Todos os comandos abaixo são reais e foram rodados na validação ponta a ponta. O <code>&lt;id&gt;</code> é o nome da pasta criada em <code>trabalho/</code>.</p>
+
+  <div class="step"><div class="b">1</div><div>
+    <h3>Rode o pipeline inteiro</h3>
+    <p>Uma linha faz tudo: baixa, transcreve, detecta cena, pontua, seleciona e renderiza. O resultado é copiado para <code>~/projetos/output/otimizevideo/&lt;id&gt;/</code>.</p>
+<pre><span class="k">python3 otv.py run</span> <span class="s">"https://www.youtube.com/watch?v=..."</span> --modo A --alvo 120</pre>
+  </div></div>
+
+  <div class="step"><div class="b">2</div><div>
+    <h3>Veja o que foi escolhido</h3>
+    <p>O <code>status</code> lista os artefatos, a manchete e cada segmento com tempo, duração e classificação visual.</p>
+<pre><span class="k">python3 otv.py status</span> &lt;id&gt;  <span class="c"># plan: modo A · 136.6s em 18 segmentos</span></pre>
+  </div></div>
+
+  <div class="step"><div class="b">3</div><div>
+    <h3>Confira o gasto</h3>
+    <p>Cada fase registra tempo e custo em <code>trabalho/&lt;id&gt;/custos.json</code>. Uma condensação típica sai por centavos de dólar.</p>
+<pre><span class="k">python3 otv.py custo</span> &lt;id&gt;  <span class="c"># total US$0.0023</span></pre>
+  </div></div>
+
+  <div class="step"><div class="b">4</div><div>
+    <h3>Não gostou de um trecho? Edite o plano</h3>
+    <p>Abra o <code>plan.json</code>, tire ou ajuste um segmento e renderize de novo. <strong>Nenhuma chamada de modelo acontece</strong> — o corte manual é de graça.</p>
+<pre><span class="k">$EDITOR</span> trabalho/&lt;id&gt;/plan.json
+<span class="k">python3 otv.py render</span> &lt;id&gt;</pre>
+  </div></div>
+
+  <div class="step"><div class="b">5</div><div>
+    <h3>Troque o provedor de uma fase só</h3>
+    <p>As fases são independentes: re-pontuar com outro modelo não refaz a transcrição nem o download.</p>
+<pre><span class="k">python3 otv.py pontuar</span> &lt;id&gt; --provedor gemini --forcar
+<span class="k">python3 otv.py selecionar</span> &lt;id&gt; &amp;&amp; <span class="k">python3 otv.py render</span> &lt;id&gt;</pre>
+  </div></div>
+
+  <div class="step"><div class="b">6</div><div>
+    <h3>Modo B — vídeo sem apresentador, com narração</h3>
+    <p>Fica só com slide, demo e gráfico. Precisa da classificação visual por modelo, então passe <code>--visual</code>.</p>
+<pre><span class="k">python3 otv.py run</span> <span class="s">"&lt;url&gt;"</span> --modo B --visual glm  <span class="c"># roteiro.md + narracao/*.wav</span></pre>
+  </div></div>
+
+  <div class="step"><div class="b">7</div><div>
+    <h3>Modo A+ — apresentador vira ilustração</h3>
+    <p>Cada trecho com rosto é trocado por uma imagem gerada com Ken Burns lento. O áudio segue sendo o original, então a fala não muda.</p>
+<pre><span class="k">python3 otv.py run</span> <span class="s">"&lt;url&gt;"</span> --modo A --visual glm --substituir gerado</pre>
+  </div></div>
+</div></section>
+
+<section id="exemplos"><div class="wrap">
+  <span class="chip">Exemplos</span>
+  <h2>Rodado num vídeo real de 20 minutos</h2>
+  <p class="sub">Fonte de 1206 s em inglês sobre longevidade e IA, condensado para 136,6 s em 18 segmentos por US$0,0023 de modelo. O render leva 21 segundos.</p>
+  <div class="ex">
+    <figure><img src="assets/ex1.jpg" alt="Quadro de um trecho substituído por ilustração no modo A+"><figcaption>Modo A+: o trecho de apresentador virou natureza-morta conceitual gerada por IA — o áudio continua o original.</figcaption></figure>
+    <figure><img src="assets/ex2.jpg" alt="Quadro de um trecho preservado do vídeo original"><figcaption>Um segmento preservado do fonte: corte com precisão de quadro, começando e terminando em fronteira de palavra.</figcaption></figure>
+  </div>
+</div></section>
+
+<section id="roadmap"><div class="wrap">
+  <span class="chip">Roadmap</span>
+  <h2>Onde o projeto está</h2>
+  <p class="sub">O pipeline está implementado e validado ponta a ponta. O que vem depois é escala e formato.</p>
+  <div class="phase"><div class="tag">Pronto</div><div class="d"><strong>Pipeline completo, modos A, A+, B e C</strong><span>Nove fases, CLI com fase avulsa, 110 testes, validação ponta a ponta registrada na spec.</span></div></div>
+  <div class="phase"><div class="tag">Pronto</div><div class="d"><strong>Robustez do render</strong><span>Um input de ffmpeg por segmento e teto de memória — antes um filtergraph único chegava a 60,9 GB e travava a máquina.</span></div></div>
+  <div class="phase"><div class="tag">Próximo</div><div class="d"><strong>Saída 9:16 e lote</strong><span>Corte vertical para Reels e Shorts, e uma playlist inteira num comando.</span></div></div>
+  <div class="phase"><div class="tag">Ideia</div><div class="d"><strong>Modo A+ com b-roll real</strong><span>Trocar o apresentador por vídeo de arquivo em vez de imagem estática.</span></div></div>
+</div></section>
+
+<footer>
+  <div class="wrap">
+    <div class="pill">Python 3.12</div><div class="pill">ffmpeg</div><div class="pill">PySceneDetect</div><div class="pill">Groq Whisper</div><div class="pill">OpenRouter</div>
+    <p style="margin-top:18px">otimizevideo · o modelo pontua, o código corta ·
+      <a href="https://github.com/inematds/otimizevideo">inematds/otimizevideo</a> ·
+      <a href="https://inema.club">INEMA.CLUB</a></p>
+  </div>
+</footer>
+
+<script>
+  (function(){
+    var KEY='otimizevideo-theme';
+    var b=document.body, t=document.getElementById('themeToggle');
+    if(localStorage.getItem(KEY)==='light'){ b.classList.add('light'); t.textContent='☀️'; }
+    t.addEventListener('click',function(){
+      var light=b.classList.toggle('light');
+      t.textContent=light?'☀️':'🌙';
+      localStorage.setItem(KEY, light?'light':'dark');
+    });
+  })();
+</script>
+</body>
+</html>
