@@ -1,0 +1,7 @@
+requests>=2.31
+pyyaml>=6
+pytest>=8
+yt-dlp
+scenedetect>=0.7
+opencv-python
+mediapipe>=0.10
