@@ -1,4 +1,4 @@
-import json, time
+import json
 from pathlib import Path
 from otv.contratos import validar_plan
 from otv.util.custos import registrar
@@ -39,7 +39,7 @@ def segmentar(ids, unidades):
     return segs
 
 def snap(segs, unidades, cortes_cena, folga_s):
-    por_id = {u["id"]: u for u in unidades}; n = len(unidades)
+    por_id = {u["id"]: u for u in unidades}
     for s in segs:
         u0 = por_id[s["unidades"][0]]; u1 = por_id[s["unidades"][-1]]
         prev_fim = por_id[u0["id"] - 1]["fim"] if u0["id"] > 0 and (u0["id"] - 1) in por_id else 0.0
@@ -77,9 +77,13 @@ def selecionar_plan(unidades, notas, cenas, sel, modo, alvo_s):
             j = max(viz, key=lambda j: por_id[j]["nota"]); esc.add(j); total += por_id[j]["dur"]; bloco = sorted(bloco + [j])
     esc, total, por_topico = set(), 0.0, {}
     ancorar(notas.get("gancho", [])); ancorar(notas.get("fecho", []))
-    # 2. mochila por nota (desempate: mais curta) — âncoras ficam fora da cota por tópico
+    # 2. mochila por nota (desempate: mais curta) — âncoras ficam fora da cota por tópico.
+    # Teto aqui é `alvo_s` puro (não `teto`, que já inclui a tolerância) — a folga de
+    # tolerância fica reservada para coesão/sanduíche/completar (passos 3, 4 e 6), que
+    # continuam podendo ir até `teto`. Ver Achado 2 da revisão da Task 8: com a mochila
+    # saturando o `teto` cheio, a coesão nunca tinha orçamento sobrando para agir.
     cands = sorted([u for u in elegiveis if u["nota"] >= nmin], key=lambda u: (-u["nota"], u["dur"]))
-    esc, total, por_topico = mochila(cands, teto, cota, topico_de, esc, total, por_topico)
+    esc, total, por_topico = mochila(cands, alvo_s, cota, topico_de, esc, total, por_topico)
     # 3. coesão: estende cada segmento pros vizinhos razoáveis até min_segmento_ideal_s
     for s in segmentar(esc, unidades):
         ids = list(s["unidades"])

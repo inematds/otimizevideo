@@ -1,4 +1,6 @@
-from otv.fases.selecionar import selecionar_plan, filtrar_modo, snap
+import json
+import pytest
+from otv.fases.selecionar import selecionar_plan, filtrar_modo, snap, selecionar
 
 SEL = {"alvo_s": 20, "tolerancia": 0.25, "min_segmento_s": 3, "min_segmento_ideal_s": 6,
        "folga_ms": 120, "cota_topico_pct": 60, "nota_minima": 5}
@@ -57,3 +59,72 @@ def test_snap_recua_para_pausa_e_alinha_em_corte_de_cena():
     assert segs[0]["in"] == 4.8                                  # corte de cena a < 0.3 s vence
     segs = snap([{"in": 5.0, "out": 9.0, "unidades": [1]}], us, cortes_cena=[], folga_s=0.12)
     assert segs[0]["in"] == 4.6 and segs[0]["out"] == 9.12       # recua até metade da pausa (máx 0.4)
+
+# ---------------------------------------------------------------------------
+# wrapper de I/O `selecionar()` (Achado 1 da revisão da Task 8: o brief só
+# cobria as funções puras — este bloco cobre o wrapper de arquivo).
+# ---------------------------------------------------------------------------
+
+def _grava_base(tmp_path, us, notas, scenes=None):
+    (tmp_path / "unidades.json").write_text(json.dumps({"unidades": us}))
+    (tmp_path / "notas.json").write_text(json.dumps(notas))
+    if scenes is not None:
+        (tmp_path / "scenes.json").write_text(json.dumps({"cenas": scenes}))
+
+def test_selecionar_escreve_plan_json_e_registra_custo(tmp_path):
+    us = [U(i, i * 5.0, 4.0) for i in range(3)]
+    _grava_base(tmp_path, us, N([9, 9, 9]))
+    out = selecionar(tmp_path, {"selecao": SEL}, modo="A", alvo_s=12)
+    assert out == tmp_path / "plan.json"
+    plan = json.loads(out.read_text())
+    assert plan["modo"] == "A" and plan["alvo_s"] == 12 and plan["segmentos"]
+    custos = json.loads((tmp_path / "custos.json").read_text())
+    assert custos["selecionar"]["modo"] == "A" and custos["selecionar"]["alvo_s"] == 12
+    assert custos["selecionar"]["total_s"] == plan["total_s"]
+    assert custos["selecionar"]["segmentos"] == len(plan["segmentos"])
+    assert "quando" in custos["selecionar"]
+
+def test_selecionar_sem_scenes_json_usa_lista_vazia_sem_quebrar(tmp_path):
+    us = [U(i, i * 5.0, 4.0) for i in range(3)]
+    _grava_base(tmp_path, us, N([9, 9, 9]))  # sem scenes.json
+    assert not (tmp_path / "scenes.json").exists()
+    out = selecionar(tmp_path, {"selecao": SEL}, modo="A", alvo_s=12)
+    assert json.loads(out.read_text())["segmentos"]
+
+def test_selecionar_le_scenes_json_e_snap_usa_o_corte_de_cena(tmp_path):
+    # mesmo cenário de test_snap_recua_para_pausa_e_alinha_em_corte_de_cena,
+    # mas passando pelo wrapper inteiro (lê unidades.json/notas.json/scenes.json).
+    us = [U(0, 0, 4.0), U(1, 5.0, 4.0)]                    # pausa de 1 s entre elas
+    notas = N([0, 9])                                      # só a unidade 1 é elegível (nota_minima=5)
+    cena = {"id": 0, "ini": 4.8, "fim": 5.0, "thumb": "x.jpg", "rosto_pct": 0.0,
+            "visual": "outro", "descricao": None, "pip": False}
+    _grava_base(tmp_path, us, notas, scenes=[cena])
+    out = selecionar(tmp_path, {"selecao": SEL}, modo="A", alvo_s=9)
+    plan = json.loads(out.read_text())
+    assert plan["segmentos"][0]["unidades"] == [1]
+    assert plan["segmentos"][0]["in"] == 4.8               # corte de cena a < 0.3 s do recuo natural vence
+
+def test_selecionar_runtime_error_modo_sem_visual_necessario(tmp_path):
+    us = [U(0, 0, 5, "talking_head"), U(1, 6, 5, "talking_head")]
+    _grava_base(tmp_path, us, N([9, 9]))
+    with pytest.raises(RuntimeError) as exc:
+        selecionar(tmp_path, {"selecao": SEL}, modo="B", alvo_s=10)
+    msg = str(exc.value)
+    assert "nenhuma unidade com visual" in msg and "otv cenas --classificar" in msg
+
+def test_selecionar_avisa_quando_total_fica_abaixo_de_50pct_do_alvo(tmp_path, capsys):
+    us = [U(i, i * 5.0, 4.0) for i in range(2)]             # só 8 s de conteúdo disponível no total
+    _grava_base(tmp_path, us, N([9, 9]))
+    out = selecionar(tmp_path, {"selecao": SEL}, modo="A", alvo_s=1000)
+    plan = json.loads(out.read_text())
+    assert plan["total_s"] < 0.5 * 1000
+    saida = capsys.readouterr().out
+    assert "aviso" in saida and "considere baixar selecao.nota_minima" in saida
+
+def test_selecionar_forcar_falso_nao_reprocessa_se_plan_ja_existe(tmp_path):
+    us = [U(i, i * 5.0, 4.0) for i in range(3)]
+    _grava_base(tmp_path, us, N([9, 9, 9]))
+    (tmp_path / "plan.json").write_text(json.dumps({"ja": "existe"}))
+    out = selecionar(tmp_path, {"selecao": SEL}, modo="A", alvo_s=12, forcar=False)
+    assert json.loads(out.read_text()) == {"ja": "existe"}
+    assert not (tmp_path / "custos.json").exists()          # não rodou de novo, não registrou custo
