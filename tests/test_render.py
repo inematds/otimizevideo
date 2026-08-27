@@ -331,3 +331,21 @@ def test_concatenar_cta_string_vazia_desliga(tmp_path):
     corpo = tmp_path / "output.mp4"; corpo.write_bytes(b"x")
     assert concatenar_cta(corpo, {"cta": ""}) == corpo
     assert corpo.read_bytes() == b"x"
+
+
+def test_costurar_recusa_parte_sem_audio(tmp_path, video_teste):
+    # concat de um ramo mudo com um ramo sonoro dessincroniza (ou falha) -- erro explícito
+    # é melhor que um vídeo com áudio fora de sincronia sem sinal nenhum.
+    from otv.fases.render import costurar
+    from otv.util.ffmpeg import run as _run
+    mudo = tmp_path / "mudo.mp4"
+    _run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=320x240:r=25",
+          "-t", "1", "-c:v", "libx264", str(mudo)])
+    with pytest.raises(RuntimeError, match="não tem trilha de áudio"):
+        costurar([video_teste, mudo], tmp_path / "out.mp4", (320, 240, 25))
+
+
+def test_costurar_junta_tres_partes(video_teste, tmp_path):
+    from otv.fases.render import costurar
+    out = costurar([video_teste, video_teste, video_teste], tmp_path / "tri.mp4", (320, 240, 25))
+    assert abs(probe(out)["duracao_s"] - 18.0) < 0.6      # 3 × 6s da fixture

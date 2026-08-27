@@ -98,34 +98,53 @@ def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=True
     return ";".join(fc)
 
 
-def concatenar_cta(corpo, cfg, tamanho=None):
-    """Cola o clipe fixo de CTA no fim do vídeo, se ele existir.
+def costurar(partes, saida, tamanho=None):
+    """Concatena N mp4 num só, REENCODANDO.
 
-    Reencoda em vez de usar `-c copy`: o corpo sai do otv em 1920x1080/25fps e o áudio do
-    fonte pode vir em qualquer taxa (o vídeo de exemplo tem AAC a 96 kHz), enquanto o CTA é
-    um render próprio. Concat sem reencode exige parâmetros idênticos nos dois — já quebrou
-    duas vezes hoje com "parameters do not match". O `aresample=async=1` e o `fps` no ramo
-    de vídeo normalizam os dois lados antes do concat.
+    Reencoda em vez de usar `-c copy` porque as partes não compartilham parâmetros: o corpo
+    sai do otv na geometria do fonte (e o áudio do fonte pode vir em qualquer taxa — o vídeo
+    de exemplo tem AAC a 96 kHz), enquanto a abertura e o CTA são renders do HyperFrames a
+    30 fps. Concat sem reencode exige parâmetros idênticos — já quebrou duas vezes com
+    "parameters do not match". O scale+fps no vídeo e o aresample no áudio normalizam tudo
+    antes do concat.
+
+    Parte sem trilha de áudio é erro explícito: concat de um ramo mudo com um ramo sonoro
+    dessincroniza (ou falha) em vez de simplesmente ficar em silêncio.
     """
-    caminho = cfg.get("cta", "assets/cta.mp4")
-    if not caminho:                      # "" desliga o CTA (Path("") vira "." e existe — cuidado)
-        return corpo
-    cta = Path(caminho).expanduser()
-    if not cta.exists():
-        return corpo
-    corpo = Path(corpo)
+    partes = [Path(x) for x in partes]
     W, H, FPS = tamanho or (1920, 1080, 25)
-    tmp = corpo.with_name(corpo.stem + ".comcta.mp4")
-    fc = (f"[0:v]scale={W}:{H},setsar=1,fps={FPS},format=yuv420p[v0];"
-          f"[1:v]scale={W}:{H},setsar=1,fps={FPS},format=yuv420p[v1];"
-          f"[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a0];"
-          f"[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a1];"
-          f"[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]")
-    run(["ffmpeg", "-v", "error", "-y", "-i", str(corpo), "-i", str(cta), "-filter_complex", fc,
+    entradas, fc, rotulos = [], [], []
+    for i, parte in enumerate(partes):
+        if not run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries",
+                    "stream=index", "-of", "csv=p=0", str(parte)]).strip():
+            raise RuntimeError(f"{parte} não tem trilha de áudio — gere-a (nem que seja silêncio) antes de costurar")
+        entradas += ["-i", str(parte)]
+        fc.append(f"[{i}:v]scale={W}:{H}:force_original_aspect_ratio=decrease,"
+                  f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={FPS},format=yuv420p[v{i}]")
+        fc.append(f"[{i}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}]")
+        rotulos.append(f"[v{i}][a{i}]")
+    fc.append("".join(rotulos) + f"concat=n={len(partes)}:v=1:a=1[v][a]")
+    saida = Path(saida); tmp = saida.with_name(saida.stem + ".costura.mp4")
+    run(["ffmpeg", "-v", "error", "-y"] + entradas + ["-filter_complex", ";".join(fc),
          "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-preset", "medium",
          "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(tmp)])
-    tmp.replace(corpo)
-    return corpo
+    tmp.replace(saida)
+    return saida
+
+
+def concatenar_cta(corpo, cfg, tamanho=None, abertura=None):
+    """Costura abertura + corpo + CTA, pulando as partes que não existirem."""
+    caminho = cfg.get("cta", "assets/cta.mp4")
+    cta = Path(caminho).expanduser() if caminho else None   # "" desliga (Path("") vira "." e existe)
+    partes = []
+    if abertura and Path(abertura).exists():
+        partes.append(Path(abertura))
+    partes.append(Path(corpo))
+    if cta and cta.exists():
+        partes.append(cta)
+    if len(partes) == 1:
+        return Path(corpo)
+    return costurar(partes, Path(corpo), tamanho)
 
 
 def render(dir, cfg, rapido=False, sem_audio_original=None):
@@ -192,7 +211,7 @@ def render(dir, cfg, rapido=False, sem_audio_original=None):
                 "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-preset", "medium",
                 "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out)]
         run(cmd)
-    concatenar_cta(out, cfg, tamanho if not rapido else None)
+    concatenar_cta(out, cfg, tamanho if not rapido else None, abertura=dir / "abertura.mp4")
     vid = json.loads((dir / "metadata.json").read_text()).get("id", dir.name)
     dest = Path(cfg["saida"]).expanduser() / vid; dest.mkdir(parents=True, exist_ok=True)
     for f in ("output.mp4", "plan.json", "notas.json", "unidades.json", "custos.json"):

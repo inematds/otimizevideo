@@ -3,9 +3,9 @@
 import argparse, json, sys
 from pathlib import Path
 from otv.config import carregar_config
-from otv.fases import ingest as F_ing, transcrever as F_tr, unidades as F_un, cenas as F_ce, pontuar as F_po, selecionar as F_se, render as F_re, narrar as F_na, substituir as F_su
+from otv.fases import ingest as F_ing, transcrever as F_tr, unidades as F_un, cenas as F_ce, pontuar as F_po, selecionar as F_se, render as F_re, narrar as F_na, substituir as F_su, abertura as F_ab
 
-ARTEFATOS = ["video.mp4", "audio.opus", "metadata.json", "transcript.json", "scenes.json", "unidades.json", "notas.json", "plan.json", "output.mp4"]
+ARTEFATOS = ["video.mp4", "audio.opus", "metadata.json", "transcript.json", "scenes.json", "unidades.json", "notas.json", "plan.json", "abertura.mp4", "output.mp4"]
 
 def pasta(cfg, id_):
     d = Path(cfg["trabalho"]) / id_
@@ -40,6 +40,8 @@ def cmd_run(a, cfg):
         F_su.substituir(d, cfg, a.imagem, forcar=a.forcar); print("[substituir] ok")
     if a.modo in ("B", "N"):
         F_na.narrar(d, cfg, a.tts); print("[narrar] ok")
+    if a.abertura:
+        F_ab.abertura(d, cfg, forcar=a.forcar); print("[abertura] ok")
     out = F_re.render(d, cfg, rapido=a.rapido, sem_audio_original=False if a.com_cama else None); print(f"[render] {out}")
     cmd_status(a, cfg, d)
 
@@ -85,15 +87,17 @@ def main():
         # modo A+ (Task 10b): troca os trechos de apresentador por ilustração gerada,
         # mantendo o áudio original. Só 'gerado' por enquanto ('broll' ficou adiado).
         s_.add_argument("--substituir", choices=["gerado"]); s_.add_argument("--imagem")
+        # chamada de ~12s (capa editorial + promessas) colada ANTES do conteúdo
+        s_.add_argument("--abertura", action="store_true")
         s_.add_argument("--forcar", action="store_true")
     i = sub.add_parser("ingest"); i.add_argument("fonte"); i.add_argument("--forcar", action="store_true")
     # CORREÇÃO 4 (rodada 1 de revisão): só declara --provedor/--forcar no subcomando que de
     # fato os repassa pra fase (ver main(), abaixo) — antes o loop dava as duas flags pra
     # todo mundo, inclusive status/custo (que nunca as usam) e selecionar/render/narrar
     # (cujas fases não têm parâmetro forcar exposto no CLI), o que aparecia morto no --help.
-    USA_PROVEDOR = {"transcrever", "cenas", "pontuar", "narrar", "substituir"}
-    USA_FORCAR = {"transcrever", "cenas", "pontuar", "substituir"}
-    for nome in ("transcrever", "cenas", "pontuar", "selecionar", "substituir", "render", "narrar", "status", "custo"):
+    USA_PROVEDOR = {"transcrever", "cenas", "pontuar", "narrar", "substituir", "abertura"}
+    USA_FORCAR = {"transcrever", "cenas", "pontuar", "substituir", "abertura"}
+    for nome in ("transcrever", "cenas", "pontuar", "selecionar", "substituir", "abertura", "render", "narrar", "status", "custo"):
         sp = sub.add_parser(nome); sp.add_argument("id")
         if nome in USA_PROVEDOR: sp.add_argument("--provedor")
         if nome in USA_FORCAR: sp.add_argument("--forcar", action="store_true")
@@ -114,6 +118,7 @@ def main():
     elif a.cmd == "pontuar": F_un.unidades(d, cfg, forcar=False); print(F_po.pontuar(d, cfg, a.modo, a.alvo, a.provedor, forcar=a.forcar))
     elif a.cmd == "selecionar": print(F_se.selecionar(d, cfg, a.modo, a.alvo)); cmd_status(a, cfg, d)
     elif a.cmd == "substituir": print(F_su.substituir(d, cfg, a.provedor, forcar=a.forcar))
+    elif a.cmd == "abertura": print(F_ab.abertura(d, cfg, a.provedor, forcar=a.forcar))
     elif a.cmd == "render": print(F_re.render(d, cfg, rapido=a.rapido, sem_audio_original=False if a.com_cama else None))
     elif a.cmd == "narrar": print(F_na.narrar(d, cfg, a.provedor))
 
