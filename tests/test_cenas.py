@@ -209,3 +209,13 @@ def test_detectar_cenas_video_curto_de_plano_unico_continua_valido(monkeypatch, 
                         type("M", (), {"detect": staticmethod(lambda *a, **k: []),
                                        "AdaptiveDetector": lambda *a, **k: None})())
     assert C.detectar_cenas(tmp_path / "v.mp4") == [(0.0, 40.0)]
+
+
+def test_limiar_de_rosto_e_unico_nos_dois_caminhos():
+    # até 2026-08-27 havia dois: 0.08 no classificar_local e 0.15 no desempate do VLM. A
+    # faixa entre eles era onde o apresentador se escondia (cena de rosto 0.1077 rotulada
+    # 'demo_tela' e por isso não substituída no modo A+).
+    from otv.fases.cenas import LIMIAR_ROSTO, classificar_local
+    assert LIMIAR_ROSTO == 0.08
+    assert classificar_local(0.1077) == "talking_head"
+    assert classificar_local(0.079) == "outro"

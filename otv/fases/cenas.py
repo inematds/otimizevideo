@@ -100,8 +100,16 @@ def rosto_pct(jpg):
     return round(max(0.0, frac), 4)
 
 
+# UM limiar só pra "tem apresentador em quadro". Até 2026-08-27 havia dois: o
+# classificar_local usava 0.08 e o classificar (VLM) só sobrepunha o rótulo do modelo em
+# 0.15 — a faixa entre os dois era exatamente onde o apresentador se escondia. Uma cena de
+# rosto 0.1077 saía rotulada "demo_tela" e o modo A+ não a substituía, porque ele só troca
+# o que está marcado talking_head.
+LIMIAR_ROSTO = 0.08
+
+
 def classificar_local(rosto):
-    return "talking_head" if rosto >= 0.08 else "outro"
+    return "talking_head" if rosto >= LIMIAR_ROSTO else "outro"
 
 
 def cenas(dir, cfg, forcar=False):
@@ -143,7 +151,7 @@ def classificar(dir, cfg, provedor=None, forcar=False):
             i = int(r.get("i", -1))
             if 0 <= i < len(lote) and r.get("visual") in VISUAIS_VALIDOS:
                 c = lote[i]
-                c["visual"] = "talking_head" if c["rosto_pct"] >= 0.15 else r["visual"]  # rosto grande vence
+                c["visual"] = "talking_head" if c["rosto_pct"] >= LIMIAR_ROSTO else r["visual"]  # rosto vence o rótulo do modelo
                 c["descricao"] = str(r.get("descricao", ""))[:80]
                 c["pip"] = bool(r.get("pip", False))
         for kk, v in (uso or {}).items():
