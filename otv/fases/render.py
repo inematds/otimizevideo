@@ -13,11 +13,29 @@ FONTE_MANCHETE = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 
 def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=False, manchete=None):
+    """Filtro do render: UM input de vídeo por segmento (índices 0..N-1), narração depois.
+
+    Por que um input por segmento e não `[0:v]trim` N vezes sobre um único input: com um
+    input só, o ffmpeg decodifica o arquivo LINEARMENTE uma vez e alimenta todos os ramos
+    ao mesmo tempo, enquanto o `concat` consome apenas o ramo 0. Os quadros CRUS dos
+    segmentos 1..N-1 ficam empilhados nas filas do concat até chegar a vez deles — o vídeo
+    inteiro em RAM descomprimido. Em 2026-08-27 isso deu 60,9 GB de RSS num fonte de 20
+    min e travou o host (ver FALHAS.md). Com um input por segmento (`-ss`/`-t` na entrada),
+    o ffmpeg só lê de um input quando o filtergraph pede quadros dele: o concat puxa o
+    segmento 0, os outros decodificadores ficam parados, e a memória fica limitada a
+    alguns quadros por ramo. Mesmo resultado, mesma precisão de quadro, um encode só.
+
+    `render()` é quem monta os `-i` na ordem que os índices aqui assumem — os dois têm que
+    mudar juntos.
+    """
     fc = []; entradas = []
+    n = len(segmentos)
     for k, s in enumerate(segmentos):
         d = s["out"] - s["in"]; ext = float(s.get("estender_s") or 0)
-        v = f"[0:v]trim={s['in']}:{s['out']},setpts=PTS-STARTPTS"
-        a = f"[0:a]atrim={s['in']}:{s['out']},asetpts=PTS-STARTPTS,afade=t=in:d=0.04,afade=t=out:st={max(0, d - 0.04):.3f}:d=0.04"
+        # o input k já vem cortado por -ss/-t, com timestamps começando em 0; o trim=0:d é
+        # a garantia de duração exata (o -t da entrada pode arredondar por quadro).
+        v = f"[{k}:v]trim=0:{d},setpts=PTS-STARTPTS"
+        a = f"[{k}:a]atrim=0:{d},asetpts=PTS-STARTPTS,afade=t=in:d=0.04,afade=t=out:st={max(0, d - 0.04):.3f}:d=0.04"
         if ext > 0:
             v += f",tpad=stop_mode=clone:stop_duration={ext}"; a += f",apad=pad_dur={ext}"
         if narracao and narracao[k]:
@@ -29,7 +47,7 @@ def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=Fals
             # perfeitamente previsível a partir da contagem de palavras — este afade=t=out é
             # a rede de segurança: se o wav ainda chegar até o teto d+ext, ele desvanece em
             # vez de cortar no meio de uma sílaba (mesma duração de 0.04s da trilha original).
-            a += (f",{ganho}[o{k}];[{k + 1}:a]apad=whole_dur={d + ext:.3f},atrim=0:{d + ext:.3f},"
+            a += (f",{ganho}[o{k}];[{n + k}:a]apad=whole_dur={d + ext:.3f},atrim=0:{d + ext:.3f},"
                   f"afade=t=out:st={max(0, d + ext - 0.04):.3f}:d=0.04[n{k}];[o{k}][n{k}]amix=inputs=2:normalize=0")
         fc.append(v + f"[v{k}]"); fc.append(a + f"[a{k}]"); entradas.append(f"[v{k}][a{k}]")
     fc.append("".join(entradas) + f"concat=n={len(segmentos)}:v=1:a=1[vc][ac]")
@@ -91,7 +109,14 @@ def render(dir, cfg, rapido=False, sem_audio_original=False):
             wavs = [dir / w for w in arqs]
         else:
             wavs = None
-        cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(dir / "video.mp4")]
+        # Um input por segmento: `-ss`/`-t` ANTES do `-i` recortam já na entrada, cada um com
+        # seu próprio decodificador. É isso que impede o ffmpeg de empilhar o vídeo inteiro
+        # descomprimido nas filas do concat (o travamento de 60,9 GB de 2026-08-27).
+        # `-accurate_seek` é o padrão, então o corte continua com precisão de quadro.
+        video = str(dir / "video.mp4")
+        cmd = ["ffmpeg", "-v", "error", "-y"]
+        for s in segs:
+            cmd += ["-ss", f"{s['in']}", "-t", f"{s['out'] - s['in']}", "-i", video]
         for w in (wavs or []):
             cmd += ["-i", str(w)]
         cmd += ["-filter_complex", montar_filtro(segs, wavs, sem_audio_original=sem_audio_original, manchete=plan.get("manchete")),

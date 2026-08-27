@@ -29,8 +29,13 @@ def _pixels_glifo(video, t, tmp_path, tag=""):
 
 def test_montar_filtro_dois_segmentos():
     f = montar_filtro([{"in": 1.0, "out": 3.0, "estender_s": 0}, {"in": 4.0, "out": 5.5, "estender_s": 0}])
-    assert "[0:v]trim=1.0:3.0,setpts=PTS-STARTPTS[v0]" in f
-    assert "atrim=4.0:5.5" in f
+    # Um input por segmento (índice = número do segmento), com o corte já feito por
+    # -ss/-t na entrada -- por isso o trim aqui é relativo (0:duração), não absoluto.
+    # Ver a docstring de montar_filtro: com um input só, os quadros crus dos segmentos
+    # ainda não consumidos empilhavam nas filas do concat (60,9 GB / host travado).
+    assert "[0:v]trim=0:2.0,setpts=PTS-STARTPTS[v0]" in f
+    assert "[1:v]trim=0:1.5,setpts=PTS-STARTPTS[v1]" in f
+    assert "[1:a]atrim=0:1.5" in f
     # nota: a asserção do brief ("concat=...[v][a]") está desatualizada — o filtro
     # concatena para os rótulos intermediários [vc][ac] e só depois deriva [a] (via
     # loudnorm) e [v] (via null, ou drawtext quando há manchete).
@@ -153,6 +158,11 @@ def test_montar_filtro_narracao_tem_fade_out():
     seg = [{"in": 0.0, "out": 2.0, "estender_s": 0.5}]
     f = montar_filtro(seg, narracao=["a.wav"])
     assert "afade=t=out:st=2.460:d=0.04[n0]" in f  # d+ext=2.5 -> st=2.5-0.04=2.46
+    # com 1 segmento, os inputs de vídeo ocupam o índice 0 e a narração começa no 1;
+    # com 2 segmentos ela começa no 2 -- é esse deslocamento que render() tem que casar.
+    f2 = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0},
+                        {"in": 3.0, "out": 5.0, "estender_s": 0}], narracao=["a.wav", "b.wav"])
+    assert "[2:a]apad" in f2 and "[3:a]apad" in f2
 
 
 def test_render_narracao_com_null_falha_com_mensagem_clara(video_teste, tmp_path):
@@ -181,3 +191,40 @@ def test_render_rapido_produz_mp4_legivel(video_teste, tmp_path):
     assert out.exists()
     d = probe(out)["duracao_s"]
     assert d > 0
+
+
+# --- regressão do travamento do host (2026-08-27) --------------------------
+
+def test_render_nao_bufferiza_video_inteiro(video_teste, tmp_path):
+    """Segmentos esparsos ao longo do fonte não podem custar o vídeo inteiro em RAM.
+
+    O bug: com `[0:v]trim` N vezes sobre um input único, o ffmpeg decodifica linearmente
+    e empilha os quadros crus dos segmentos 1..N-1 nas filas do concat enquanto ele
+    consome o segmento 0 -- num fonte de 20 min foram 60,9 GB e o host travou. O teste
+    afirma o INVARIANTE que evita isso (um `-i` por segmento, trims relativos), porque
+    medir RSS de verdade exigiria um fonte grande e um teste lento e frágil.
+    """
+    plan = {"modo": "A", "alvo_s": 2, "total_s": 2.0, "narracao": None,
+            "segmentos": [{"in": 0.0, "out": 1.0, "unidades": [0], "estender_s": 0},
+                          {"in": 5.0, "out": 6.0, "unidades": [1], "estender_s": 0}]}
+    _preparar(tmp_path, video_teste, "esparso", plan)
+    f = montar_filtro(plan["segmentos"])
+    assert "[1:v]" in f, "segundo segmento tem que vir de um input próprio, não de [0:v]"
+    assert "trim=0:" in f and "trim=5.0" not in f, "trim tem que ser relativo ao input já seekado"
+    out = render(tmp_path, {"saida": str(tmp_path / "saida")})
+    # e o corte esparso continua correto: 1s do início + 1s a partir dos 5s = 2s
+    assert abs(probe(out)["duracao_s"] - 2.0) < 0.15
+
+
+def test_run_ffmpeg_tem_teto_de_memoria():
+    """Cinto de segurança: o ffmpeg roda dentro de um scope com MemoryMax quando dá.
+
+    Fail-open de propósito (sem systemd-run, roda sem teto), então o teste aceita as duas
+    saídas -- o que ele guarda é que, quando o prefixo existe, ele carrega o MemoryMax.
+    """
+    from otv.util.ffmpeg import _prefixo_scope, MEMMAX
+    pref = _prefixo_scope()
+    if pref:
+        assert pref[0] == "systemd-run" and f"MemoryMax={MEMMAX}" in pref
+    else:
+        assert pref == []
