@@ -331,6 +331,17 @@ Spike descartável rodou ingest → Groq → unidades → pontuação → seleç
 13. Prompts finais em `prompts/pontuar.md`, `prompts/classificar.md`, `prompts/narrar.md`
     (versão com manchete/gancho/fecho e escala de notas explícita).
 
+14. **Spike "modelo assiste o vídeo inteiro" (2026-08-27):** `z-ai/glm-5.3-flash` via OpenRouter com o vídeo
+    em 360p/2 fps (15 MB base64): 124 s, US$0,001, mas só **5.131 tokens de entrada** → ~16 quadros, um a cada
+    77 s. As "cenas" e a "seleção" (16 blocos de 8 s) caíram exatamente na grade de amostragem — timestamps
+    inventados. Sobreposição com o corte por transcrição: IoU 0,05. Acertou o que **aparece** (5 cenas de
+    apresentador, gráfico do ECG em 777 s), errou **onde cortar**. Gemini Files API (upload OK, 88 MB/47 s)
+    devolveu 503 em todos os modelos 3.x e os 2.5 estão desligados pra contas novas — provável limite da key.
+    → Decisão firme: **VLM sobre vídeo inteiro só para etiqueta visual (slot `gemini_video`/`glm_video`),
+    nunca para escolher trechos.** Seleção continua por transcrição + ids.
+15. **`claude_cli`** (Claude Code headless, `claude -p --model sonnet`) verificado: devolve JSON limpo; entra
+    como default pessoal de pontuação/classificação (sai da assinatura, aceita imagens, não aceita vídeo).
+
 ## 12. Custo por vídeo de 25 min (defaults)
 
 | Fase | Custo |
