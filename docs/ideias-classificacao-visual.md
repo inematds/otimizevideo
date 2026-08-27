@@ -79,3 +79,23 @@ de qualquer mudança no classificador. Transforma "acho que melhorou" em número
   incompetência — está julgando com uma amostra insuficiente.
 - Substituir segmento inteiro quando ele é misto. Isso é decisão de edição (perder a demo junto
   com o apresentador), não correção de bug.
+
+
+---
+
+# Anotado à parte — redundância no arranque (2026-08-27)
+
+Nos primeiros ~20 s a mesma ideia aparece três vezes: o bloco de capa da chamada, a tarja de
+manchete desenhada sobre o corpo, e o gancho do vídeo. A causa é estrutural — o gerador da
+chamada recebe a **manchete** como insumo e naturalmente a parafraseia, e a manchete por sua vez
+foi extraída do gancho.
+
+Duas saídas, nenhuma implementada: (a) o prompt da chamada passa a receber a manchete como
+"isto já está na tela, não repita"; ou (b) **a tarja de manchete não é desenhada quando existe
+abertura**, já que a capa da chamada cumpre esse papel melhor. A segunda parece mais certa —
+dois letreiros com a mesma frase a 13 s de distância é redundância de layout, não só de texto.
+
+Também anotado: `"As of this year, it is."` traduzido literalmente vira `"A partir deste ano,
+é."` — gramaticalmente completo, mas termina num monossílabo átono e soa cortado. O inglês apoia
+o peso no "it **is**"; o português não tem onde apoiar. Casos assim pedem uma reescrita com
+verbo pleno ("passou a ser"), não uma tradução mais fiel.

@@ -3,18 +3,27 @@
 Regra aprendida das skills `video-explicativo`/`videoprodutor` (`revisao-texto.md`): cada
 frase tem duas formas. A de **tela** mantém o termo em inglês na grafia original; a de
 **fala** troca pela grafia fonética em PT-BR, e expande siglas e URLs. O fonemizador do TTS
-lê a partir da grafia escrita — "deploy" vira "dê-plô-i", "AlphaFold" vira "al-fa-fól-di".
+lê a partir da grafia escrita.
 
-Isto é código determinístico de propósito, não instrução de prompt: um léxico fixo é
-testável e não varia entre chamadas do modelo. O prompt cobre o que sobra (nomes próprios
-que não estão aqui); o léxico cobre o que se repete.
+REGRA DO USUÁRIO (2026-08-27): **termo em inglês e sigla podem ser falados em inglês** —
+nada de reescrita fonética em PT-BR. O que sobrou aqui é só o que o TTS lê *errado de
+verdade* se deixado como está: "IA" (que vira "inteligência artificial", nunca soletrada),
+sigla que seria lida como palavra, símbolo (%, $) e URL.
+
+Isto é código determinístico de propósito, não instrução de prompt: uma regra fixa é
+testável e não varia entre chamadas do modelo.
 """
 import re
 
-# Termos de tecnologia/IA que aparecem o tempo todo no conteúdo do usuário.
-# Base: a tabela de `video-explicativo/references/revisao-texto.md`, mais os termos de
-# biotech/IA que apareceram no vídeo de exemplo (AlphaFold, DeepMind…).
-LEXICO = {
+# REGRA DO USUÁRIO (2026-08-27): termo em inglês e sigla PODEM ser falados em inglês —
+# nada de reescrita fonética em PT-BR. O léxico de respelling que existia aqui
+# ("deploy"->"deplói", "AlphaFold"->"AlfaFôld", "design"->"dizáin", vindo do
+# revisao-texto.md das skills de vídeo) foi DESLIGADO por isso: fica vazio de propósito,
+# não foi esquecido. A estrutura continua no lugar caso um termo específico precise de
+# ajuste pontual no futuro.
+LEXICO = {}
+
+_LEXICO_FONETICO_DESATIVADO = {
     "deploy": "deplói", "design": "dizáin", "designer": "dizáiner",
     "frontend": "frôntend", "backend": "béquend", "framework": "frêimuork",
     "software": "sóftuer", "hardware": "rárduer", "cloud": "claud",
@@ -35,8 +44,11 @@ LEXICO = {
 
 # Siglas e símbolos que o TTS lê errado se deixados como estão.
 EXPANSOES = [
-    (r"\bIA\b", "I A"),
-    (r"\bAI\b", "I A"),
+    # REGRA DO USUÁRIO (2026-08-27): "IA" na tela vira "inteligência artificial" na fala,
+    # sempre — nunca soletrada ("I A"), que era o que a rachel dizia antes.
+    (r"\bIAs\b", "inteligências artificiais"),
+    (r"\bIA\b", "inteligência artificial"),
+    (r"\bAI\b", "inteligência artificial"),
     (r"\bEUA\b", "E U A"),
     (r"\bCEO\b", "C E O"),
     (r"\bAPI\b", "A P I"),

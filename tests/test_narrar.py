@@ -105,7 +105,9 @@ def test_roteiro_por_segmento_trunca_texto_que_estoura_orcamento():
 
 
 def test_narrar_manda_forma_fala_pro_tts_e_grava_a_de_tela(tmp_path, monkeypatch):
-    # roteiro.md guarda a grafia original (forma de TELA); o TTS recebe a fonética.
+    # roteiro.md guarda a grafia de TELA; o TTS recebe a forma-fala. Desde a regra do
+    # usuário de 2026-08-27 o inglês fica em inglês -- o que a forma-fala ainda muda é
+    # "IA" (vira "inteligência artificial"), sigla, símbolo e URL.
     import json
     import otv.fases.narrar as N
     (tmp_path / "plan.json").write_text(json.dumps({
@@ -118,7 +120,7 @@ def test_narrar_manda_forma_fala_pro_tts_e_grava_a_de_tela(tmp_path, monkeypatch
     class LLMFake:
         nome = "fake"
         def chat_json(self, prompt, imagens=None):
-            return {"narracao": [{"k": 0, "texto": "A DeepMind usou o AlphaFold."}]}, {"cost": 0.0}
+            return {"narracao": [{"k": 0, "texto": "A DeepMind usou IA no AlphaFold."}]}, {"cost": 0.0}
 
     monkeypatch.setattr(N, "criar_llm", lambda cfg, slot: LLMFake())
     monkeypatch.setattr(N, "tts", lambda txt, wav, cfg, prov: (recebidos.append(txt),
@@ -126,10 +128,11 @@ def test_narrar_manda_forma_fala_pro_tts_e_grava_a_de_tela(tmp_path, monkeypatch
                                "anullsrc=r=48000:cl=mono", "-t", "2", str(wav)]))[0])
     N.narrar(tmp_path, {"pontuacao": "fake", "tts": "fake", "selecao": {"alvo_s": 120}})
 
-    assert "DipMáind" in recebidos[0] and "AlfaFôld" in recebidos[0]        # foi pro TTS
+    assert "inteligência artificial" in recebidos[0]                       # foi pro TTS
+    assert "DeepMind" in recebidos[0] and "AlphaFold" in recebidos[0]       # inglês intacto
     roteiro = (tmp_path / "roteiro.md").read_text()
-    assert "DeepMind" in roteiro and "AlphaFold" in roteiro                  # tela intacta
-    assert "DipMáind" not in roteiro
+    assert " IA " in roteiro                                                # tela guarda "IA"
+    assert "inteligência artificial" not in roteiro
 
 
 def test_modo_n_usa_o_prompt_proprio_e_teto_de_freeze_maior(tmp_path, monkeypatch):
