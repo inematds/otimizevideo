@@ -2,6 +2,7 @@ import json, re, time
 from pathlib import Path
 from otv.provedores.llm import criar_llm
 from otv.provedores.tts import tts
+from otv.util.fala import forma_fala
 from otv.util.ffmpeg import run
 from otv.util.custos import registrar
 
@@ -71,7 +72,11 @@ def narrar(dir, cfg, provedor=None):
     for k, (s, txt) in enumerate(zip(segs, textos)):
         wav = dir / "narracao" / f"seg_{k:02d}.wav"
         if txt:
-            tts(txt, wav, cfg, provedor)
+            # o roteiro.md guarda a forma de TELA (grafia original); só o TTS recebe a
+            # forma-fala (termo em inglês foneticamente, sigla e URL expandidas). Sem isso
+            # a rachel lê "AlphaFold"/"deploy" com fonemização portuguesa -- foi o que
+            # aconteceu no primeiro dublado (2026-08-27).
+            tts(forma_fala(txt), wav, cfg, provedor)
         else:  # silêncio do tamanho do segmento: um wav por segmento, sempre — nunca null
             # (o render monta as entradas do ffmpeg 1:1 por índice de segmento; pular um
             # segmento sem narração desalinharia todos os [k+1:a] seguintes silenciosamente)

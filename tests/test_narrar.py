@@ -102,3 +102,31 @@ def test_roteiro_por_segmento_trunca_texto_que_estoura_orcamento():
     assert orcamento == 12
     assert len(textos[0].split()) == orcamento          # truncado exatamente no orçamento
     assert textos[0] == " ".join(f"palavra{i}" for i in range(1, orcamento + 1))  # prefixo exato
+
+
+def test_narrar_manda_forma_fala_pro_tts_e_grava_a_de_tela(tmp_path, monkeypatch):
+    # roteiro.md guarda a grafia original (forma de TELA); o TTS recebe a fonética.
+    import json
+    import otv.fases.narrar as N
+    (tmp_path / "plan.json").write_text(json.dumps({
+        "modo": "B", "alvo_s": 10, "total_s": 6.0,
+        "segmentos": [{"in": 0.0, "out": 6.0, "unidades": [0], "texto": "x", "visual": "grafico"}]}))
+    (tmp_path / "unidades.json").write_text(json.dumps(
+        {"unidades": [{"id": 0, "ini": 0.0, "fim": 6.0, "dur": 6.0, "texto": "x", "visual": "grafico"}]}))
+    recebidos = []
+
+    class LLMFake:
+        nome = "fake"
+        def chat_json(self, prompt, imagens=None):
+            return {"narracao": [{"k": 0, "texto": "A DeepMind usou o AlphaFold."}]}, {"cost": 0.0}
+
+    monkeypatch.setattr(N, "criar_llm", lambda cfg, slot: LLMFake())
+    monkeypatch.setattr(N, "tts", lambda txt, wav, cfg, prov: (recebidos.append(txt),
+                        N.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                               "anullsrc=r=48000:cl=mono", "-t", "2", str(wav)]))[0])
+    N.narrar(tmp_path, {"pontuacao": "fake", "tts": "fake", "selecao": {"alvo_s": 120}})
+
+    assert "DipMáind" in recebidos[0] and "AlfaFôld" in recebidos[0]        # foi pro TTS
+    roteiro = (tmp_path / "roteiro.md").read_text()
+    assert "DeepMind" in roteiro and "AlphaFold" in roteiro                  # tela intacta
+    assert "DipMáind" not in roteiro
