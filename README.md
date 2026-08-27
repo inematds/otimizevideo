@@ -9,9 +9,9 @@ CLI que pega um vídeo longo (aula, podcast, palestra — 20 a 30 min) e devolve
 classificação visual → pontuação → seleção → render) e produz um `output.mp4` condensado.
 A regra de ouro do projeto, e o que o diferencia de "manda o vídeo pro modelo e pede um
 corte": **o modelo nunca escolhe timestamps**. Ele só vê a transcrição fatiada em unidades
-numeradas por id (`[042] 4.2s "texto da unidade"`) e devolve uma nota de 0 a 10 por id. É o
-código — não o modelo — que converte id → tempo (`ini`/`fim` em segundos, vindos direto da
-transcrição com timestamp por palavra) e faz o corte.
+numeradas por id (`[042] 4.2s talking_head "texto da unidade"`) e devolve uma nota de 0 a 10
+por id. É o código — não o modelo — que converte id → tempo (`ini`/`fim` em segundos, vindos
+direto da transcrição com timestamp por palavra) e faz o corte.
 
 Isso importa por dois motivos: (1) o corte nunca cai no meio de uma palavra, porque a
 fronteira de cada unidade já é uma fronteira de palavra/pausa real da transcrição, nunca um
@@ -82,8 +82,8 @@ mensagem clara dizendo que não há unidade com o visual necessário.
 
 O `config.yaml` na raiz define, por slot, qual provedor usar por padrão. Todo slot pode ser
 sobreposto por linha de comando (`--transcricao`, `--visual`, `--pontuacao`, `--tts` em
-`otv run`; `--provedor` nos subcomandos de fase), e o arquivo inteiro pode ser trocado com
-`--config outro.yaml`.
+`otv run`; `--provedor` em `otv transcrever`/`cenas`/`pontuar`/`narrar`), e o arquivo inteiro
+pode ser trocado com `--config outro.yaml`.
 
 | Slot | Provedores | Custo/exigência | Default |
 |---|---|---|---|
@@ -146,16 +146,25 @@ python3 otv.py custo <id>
 ## 8. Rodar fase por fase e reaproveitar trabalho
 
 Cada fase escreve seu próprio JSON em `trabalho/<id>/` (`transcript.json`, `scenes.json`,
-`unidades.json`, `notas.json`, `plan.json`, `custos.json`...) e é **idempotente**: se o
-artefato já existe, a fase não roda de novo — só devolve o que já está no disco.
+`unidades.json`, `notas.json`, `plan.json`, `custos.json`...) e a maioria é **idempotente**:
+se o artefato já existe, a fase não roda de novo — só devolve o que já está no disco.
 `--forcar` obriga a refazer.
+
+**Três exceções sempre refazem, mesmo sem `--forcar`:** `selecionar` (assina o plano de novo
+toda vez — é o comportamento certo pra poder rodar `otv selecionar <id> --modo B --alvo 90`
+repetidas vezes até achar a combinação boa, sem editar código), `render` (não tem noção de
+"já existe" — sempre re-renderiza a partir do `plan.json` atual, é assim que a seção 9
+funciona) e `narrar` (idem — sempre gera os wavs de novo a partir do `plan.json` atual). As
+fases `ingest`, `transcrever`, `cenas`, `pontuar` são as que de fato pulam quando o artefato
+já existe.
 
 Isso economiza dinheiro de verdade: se a pontuação (`otv pontuar`) já rodou e custou
 uma chamada de LLM, você pode rodar `otv selecionar` várias vezes com `--modo`/`--alvo`
 diferentes, ou `otv render` de novo depois de editar o plano à mão (seção 9), sem pagar
-nenhuma chamada de modelo outra vez. Só refaça uma fase com `--forcar` quando precisar
-mesmo de um resultado novo dela (ex.: transcrição errada, classificação visual desatualizada
-depois de trocar de provedor).
+nenhuma chamada de modelo outra vez — `selecionar`/`render`/`narrar` refazerem sempre não
+custa nada, porque não chamam LLM nenhum. Só refaça `ingest`/`transcrever`/`cenas`/`pontuar`
+com `--forcar` quando precisar mesmo de um resultado novo dela (ex.: transcrição errada,
+classificação visual desatualizada depois de trocar de provedor).
 
 ## 9. Editar `plan.json` na mão e re-renderizar
 
@@ -179,11 +188,19 @@ Um segmento tem este formato:
 Dá pra remover um segmento inteiro da lista `segmentos`, ajustar `in`/`out` manualmente
 (cuidado: `unidades` deixa de bater exatamente com o novo intervalo, mas o render só usa
 `in`/`out`), ou editar o texto de `manchete` no topo do JSON. Depois de editar, **não** rode
-`otv selecionar` de novo (ele reescreveria o arquivo do zero) — vá direto pro render:
+`otv selecionar` de novo (ele reescreve o `plan.json` do zero, sempre — ver seção 8) — vá
+direto pro render:
 
 ```bash
 python3 otv.py render <id>
 ```
+
+**Cuidado com `otv run` na mesma pasta.** `otv run <fonte>` sem `--forcar` pula
+`ingest`/`transcrever`/`cenas`/`pontuar` se os artefatos já existirem, mas ele sempre chama
+`selecionar` internamente — que, como a seção 8 explica, reescreve o `plan.json` mesmo sem
+`--forcar`. Rodar `otv run` de novo na mesma pasta depois de editar o `plan.json` à mão
+**apaga a edição em silêncio**. Depois de editar o plano, o comando certo é `otv render <id>`
+isolado (acima), nunca `otv run` de novo.
 
 ## 10. Custo típico
 

@@ -14,20 +14,22 @@ def pasta(cfg, id_):
     return d
 
 def cmd_run(a, cfg):
+    visual = a.visual or cfg["visual"]
+    visual_e_modelo = visual in cfg["modelos"]
+    # CORREÇÃO 1+2 (rodada 1 de revisão): "local" (ou qualquer valor fora de cfg["modelos"])
+    # não é slot de modelo — criar_llm() levanta ValueError pra ele. Modo B/C sem
+    # classificação visual por modelo nunca vai ter unidade elegível (a guarda de
+    # selecionar()/VISUAL_MODO garante isso), então falha AQUI, antes de qualquer I/O ou
+    # chamada paga (ingest baixa vídeo, transcrever custa Groq, pontuar custa LLM) — não
+    # depois de já ter gasto tudo isso pra travar só no 'selecionar'. A condição não faz
+    # I/O nenhum: só olha a.modo e o slot resolvido.
+    if a.modo != "A" and not visual_e_modelo:
+        sys.exit(f"modo {a.modo} precisa de classificação visual por modelo — visual={visual!r} "
+                  "não é um slot de modelo (use --visual glm, --visual gemini ou --visual claude_cli)")
     d = F_ing.ingest(a.fonte, cfg["trabalho"], forcar=a.forcar); print(f"[ingest] {d}")
     F_tr.transcrever(d, cfg, a.transcricao, forcar=a.forcar); print("[transcrever] ok")
     F_ce.cenas(d, cfg, forcar=a.forcar); print("[cenas] ok")
-    visual = a.visual or cfg["visual"]
-    # CORREÇÃO 1: "local" não é slot de modelo (criar_llm levanta ValueError pra ele) —
-    # só chama classificar() quando `visual` for um slot de modelo de verdade. Com
-    # visual=local e modo B/C, não dá pra classificar; avisa e segue — a guarda de
-    # selecionar() (VISUAL_MODO) levanta um erro útil se faltar unidade com o visual certo.
-    if visual == "local":
-        if a.modo != "A":
-            print(f"[classificar] aviso: visual=local não classifica por modelo — modo {a.modo} "
-                  "precisa de classificação visual (--visual glm, --visual gemini ou --visual claude_cli). "
-                  "Seguindo sem classificar; 'selecionar' falha com uma mensagem clara se faltar unidade do visual certo.")
-    else:
+    if visual_e_modelo:
         F_ce.classificar(d, cfg, visual, forcar=a.forcar); print("[classificar] ok")
     F_un.unidades(d, cfg, forcar=True); print("[unidades] ok")
     F_po.pontuar(d, cfg, a.modo, a.alvo, a.pontuacao, forcar=a.forcar); print("[pontuar] ok")
@@ -68,9 +70,16 @@ def main():
         s_.add_argument("--rapido", action="store_true"); s_.add_argument("--sem-audio-original", action="store_true")
         s_.add_argument("--forcar", action="store_true")
     i = sub.add_parser("ingest"); i.add_argument("fonte"); i.add_argument("--forcar", action="store_true")
+    # CORREÇÃO 4 (rodada 1 de revisão): só declara --provedor/--forcar no subcomando que de
+    # fato os repassa pra fase (ver main(), abaixo) — antes o loop dava as duas flags pra
+    # todo mundo, inclusive status/custo (que nunca as usam) e selecionar/render/narrar
+    # (cujas fases não têm parâmetro forcar exposto no CLI), o que aparecia morto no --help.
+    USA_PROVEDOR = {"transcrever", "cenas", "pontuar", "narrar"}
+    USA_FORCAR = {"transcrever", "cenas", "pontuar"}
     for nome in ("transcrever", "cenas", "pontuar", "selecionar", "render", "narrar", "status", "custo"):
         sp = sub.add_parser(nome); sp.add_argument("id")
-        sp.add_argument("--provedor"); sp.add_argument("--forcar", action="store_true")
+        if nome in USA_PROVEDOR: sp.add_argument("--provedor")
+        if nome in USA_FORCAR: sp.add_argument("--forcar", action="store_true")
         if nome == "cenas": sp.add_argument("--classificar", action="store_true")
         if nome in ("pontuar", "selecionar"): sp.add_argument("--modo", choices="ABC", default="A"); sp.add_argument("--alvo", type=float)
         if nome == "render": sp.add_argument("--rapido", action="store_true"); sp.add_argument("--sem-audio-original", action="store_true")
