@@ -49,7 +49,16 @@ def montar_unidades(palavras, fins_segmento, pausa_s=0.4, max_dur_s=12.0):
     unidades = []
     for u in brutas:
         curta = (u["fim"] - u["ini"]) < 0.8 or len(u["texto"].split()) < 3
-        if unidades and curta:
+        # A fusão de uma bruta curta na anterior (spec §4.1 item 3) NÃO pode
+        # furar o teto que o corte forçado (item 2) acabou de garantir — senão
+        # o item 3 desfaz a garantia do item 2. Divergência deliberada da spec
+        # (que manda fundir sem condição): decisão do controlador é que o teto
+        # vence, porque é o invariante que protege a mochila da Task 8 — uma
+        # unidade curta solta é só estética, uma unidade gigante descarta
+        # conteúdo bom de uma vez. Se fundir estourasse o teto, a bruta curta
+        # fica como unidade própria em vez de fundir.
+        caberia = unidades and (u["fim"] - unidades[-1]["ini"]) <= max_dur_s
+        if unidades and curta and caberia:
             unidades[-1]["fim"] = u["fim"]; unidades[-1]["texto"] += " " + u["texto"]
         else:
             unidades.append(u)

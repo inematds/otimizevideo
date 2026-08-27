@@ -37,6 +37,21 @@ def test_corta_na_maior_pausa_interna_ao_atingir_teto():
     assert u[0]["texto"].split()[-1] == "w20"
     assert u[1]["texto"].split()[0] == "w21"
 
+def test_fusao_curta_nao_ultrapassa_teto():
+    # caso adversarial (Achado da rodada 2): uma unidade grande perto do teto
+    # (11.5 s, fecha por pontuação) seguida de uma bruta curta ("ok tá.", 2
+    # palavras) que, se fundida sem checar o teto (spec §4.1 item 3 ao pé da
+    # letra), estouraria pra 12.1 s. O teto do item 2 tem que vencer: a bruta
+    # curta fica como unidade própria em vez de fundir.
+    pal = [P("Uma", 0, 2.3), P("frase", 2.3, 4.6), P("bem", 4.6, 6.9),
+           P("longa", 6.9, 9.2), P("mesmo.", 9.2, 11.5),
+           P("ok", 11.5, 11.8), P("tá.", 11.8, 12.1)]
+    u = montar_unidades(pal, [], pausa_s=0.4, max_dur_s=12.0)
+    assert all(x["dur"] <= 12.0 for x in u)
+    assert len(u) == 2
+    assert u[0]["texto"] == "Uma frase bem longa mesmo." and u[0]["dur"] == 11.5
+    assert u[1]["texto"] == "ok tá." and u[1]["dur"] == 0.6
+
 def test_atribuir_cenas():
     u = [{"id": 0, "ini": 0, "fim": 2, "dur": 2, "texto": "a"}, {"id": 1, "ini": 5, "fim": 7, "dur": 2, "texto": "b"}]
     cenas = [{"id": 0, "ini": 0, "fim": 4, "visual": "talking_head"}, {"id": 1, "ini": 4, "fim": 9, "visual": "slide"}]
