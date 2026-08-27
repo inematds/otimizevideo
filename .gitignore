@@ -2,3 +2,4 @@ trabalho/
 __pycache__/
 *.pyc
 .venv/
+.superpowers/
