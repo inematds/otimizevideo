@@ -352,3 +352,46 @@ Spike descartável rodou ingest → Groq → unidades → pontuação → seleç
 | Pontuação (1 chamada) | ~US$0,002 |
 | Seleção / render / TTS inemavox | R$0 |
 | **Total** | **≈ US$0,03** (re-cortes: R$0) |
+
+## 11c. Validação ponta a ponta (Task 12, 2026-08-27, mesmo vídeo `dQYKcjvXhIY`)
+
+Rodada com o pipeline completo já implementado (Tasks 1–11 + 10b). Todos os passos do plano
+foram executados; o que segue é o resultado real, não o esperado.
+
+### Resultados por passo
+
+| Passo | Resultado |
+|---|---|
+| 1. `run --modo A --forcar` | 1206 s → **136,6 s em 18 segmentos**. Primeiro segmento contém a unidade 0 (gancho), menor segmento 3,1 s, média 7,6 s. Dentro da faixa 90–150 s. |
+| 2. Custo | **US$0,0023** (OpenRouter, pontuação GLM) + Groq ≈ US$0,02. Bem abaixo do teto de US$0,02 de LLM. |
+| 3. Troca de provedor | `pontuar --provedor gemini` → `selecionar` → `render` rodou sem tocar nas outras fases. **Sobreposição de unidades com o GLM: 44 %** (esperado 50–70 %). Não é falha de código — as fases isolaram corretamente; é divergência de julgamento entre os dois modelos. Registrado como observação: a faixa esperada no plano era otimista. |
+| 4. Modo B | **Funcionou por completo.** `plan.json` com 17 segmentos / 137,7 s contendo **só** `grafico` (9), `demo_tela` (6) e `slide` (2) — nenhum apresentador. `roteiro.md` em PT-BR, 17 wavs em `narracao/`, `output.mp4` de 151,2 s (137,7 s do plano + 13,3 s de extensão para caber a narração). O aviso "vídeo é só talking head, use modo A" **não** disparou. |
+| 5. Re-corte manual | Segmento removido à mão do `plan.json` + `render`: saída refletiu a edição (135,3 s) e o `custos.json` **não ganhou nenhuma entrada nova** — zero chamadas de modelo. |
+| 12b. `--substituir gerado` | 4 segmentos `talking_head` (0, 6, 14, 16) trocados por ilustração flux-2-klein; áudio original preservado; `status` marca os quatro com `→img`. |
+| 12c. Fecho | Último segmento do plano final = unidades `[327, 328]` = exatamente o `fecho` das notas. Gancho idem no primeiro segmento. |
+
+### Custo total da validação inteira
+
+`US$0,0152` no OpenRouter + 4 imagens no fal + Groq ≈ US$0,02. As fases mais caras foram
+**classificar** (378 cenas em 19 lotes de miniaturas, US$0,0099, 195 s) e **pontuar**
+(US$0,0048). O `narrar` custou US$0,0004 de LLM e 412 s — quase tudo TTS local (inemavox).
+
+### Três falhas reais encontradas (todas corrigidas, ver `FALHAS.md`)
+
+1. **Render travava o host.** O `montar_filtro` original punha N `[0:v]trim` sobre um único
+   input: o ffmpeg decodifica o arquivo linearmente e empilha os quadros crus dos ramos que o
+   `concat` ainda não consumiu — 60,9 GB de RSS e a máquina sem responder (reboot às 06:31).
+   Corrigido com **um input por segmento** (`-ss`/`-t` na entrada) + `MemoryMax` via
+   `systemd-run` no `run()`. Pico depois do fix no mesmo vídeo: **2,9 GB**, render em 21 s.
+2. **Detecção de cena devolvia UMA cena para o vídeo inteiro.** O OpenCV que o PySceneDetect
+   usa não decodifica AV1 — que é o que o yt-dlp entrega em 1080p. O fallback silencioso
+   `[(0, duração)]` deixava modo B/C e A+ sem nada para classificar. Corrigido detectando num
+   **proxy 360p H.264** gerado pelo ffmpeg (mesmo vídeo: 1 → **378 cenas**), e um vídeo de mais
+   de 2 min sem nenhum corte agora **levanta erro** em vez de ser engolido.
+3. **`pontuar` reaproveitava notas de outro modo.** O prompt muda com o modo, então
+   `run --modo B` sobre uma pasta já pontuada em modo A pulava a fase e validava o modo B com
+   julgamento do modo A. Agora só pula quando o modo bate.
+
+Mais uma, específica da 10b: o prompt da ilustração vinha da **descrição da cena**, que num
+trecho `talking_head` descreve o próprio apresentador — o flux devolvia outro apresentador,
+com letreiro garrancho. O assunto passou a vir da **fala** do segmento.
