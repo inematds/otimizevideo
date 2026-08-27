@@ -12,8 +12,8 @@ from otv.util.custos import registrar
 FONTE_MANCHETE = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 
-def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=False, manchete=None,
-                  dir=None, tamanho=None):
+def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=True, manchete=None,
+                  dir=None, tamanho=None, fade_s=0.0):
     """Filtro do render: UM input de vídeo por segmento (índices 0..N-1), narração depois.
 
     Por que um input por segmento e não `[0:v]trim` N vezes sobre um único input: com um
@@ -72,7 +72,13 @@ def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=Fals
                   f"afade=t=out:st={max(0, d + ext - 0.04):.3f}:d=0.04[n{k}];[o{k}][n{k}]amix=inputs=2:normalize=0")
         fc.append(v + f"[v{k}]"); fc.append(a + f"[a{k}]"); entradas.append(f"[v{k}][a{k}]")
     fc.append("".join(entradas) + f"concat=n={len(segmentos)}:v=1:a=1[vc][ac]")
-    fc.append("[ac]loudnorm=I=-16:TP=-1.5[a]")
+    total = sum((s["out"] - s["in"]) + float(s.get("estender_s") or 0) for s in segmentos)
+    # fade de saída: sem ele o corte termina no talo, no meio da respiração da última
+    # frase. Fica ANTES do CTA (que é concatenado depois), então o vídeo "fecha" e o
+    # card entra limpo, em vez de o conteúdo ser interrompido.
+    af = f",afade=t=out:st={max(0.0, total - fade_s):.3f}:d={fade_s}" if fade_s > 0 else ""
+    fc.append(f"[ac]loudnorm=I=-16:TP=-1.5{af}[a]")
+    vfade = f",fade=t=out:st={max(0.0, total - fade_s):.3f}:d={fade_s}" if fade_s > 0 else ""
     if manchete:
         texto = manchete.replace("\\", "\\\\").replace(":", "\\:").replace("'", "’")
         # fontfile= vai no FIM das opções do drawtext (a ordem não importa pro ffmpeg) pra
@@ -86,13 +92,40 @@ def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=Fals
         # falha. expansion=none elimina a classe inteira do problema (dispensa escapar %).
         fc.append(f"[vc]drawbox=y=0:h=ih*0.16:color=black@0.55:t=fill:enable='lt(t,4)',"
                   f"drawtext=text='{texto}':fontcolor=white:fontsize=h*0.055:x=(w-text_w)/2:y=h*0.05:"
-                  f"alpha='if(lt(t,0.5),t*2,if(lt(t,3.5),1,(4-t)*2))':enable='lt(t,4)':expansion=none{fontfile}[v]")
+                  f"alpha='if(lt(t,0.5),t*2,if(lt(t,3.5),1,(4-t)*2))':enable='lt(t,4)':expansion=none{fontfile}{vfade}[v]")
     else:
-        fc.append("[vc]null[v]")
+        fc.append(f"[vc]null{vfade}[v]")
     return ";".join(fc)
 
 
-def render(dir, cfg, rapido=False, sem_audio_original=False):
+def concatenar_cta(corpo, cfg, tamanho=None):
+    """Cola o clipe fixo de CTA no fim do vídeo, se ele existir.
+
+    Reencoda em vez de usar `-c copy`: o corpo sai do otv em 1920x1080/25fps e o áudio do
+    fonte pode vir em qualquer taxa (o vídeo de exemplo tem AAC a 96 kHz), enquanto o CTA é
+    um render próprio. Concat sem reencode exige parâmetros idênticos nos dois — já quebrou
+    duas vezes hoje com "parameters do not match". O `aresample=async=1` e o `fps` no ramo
+    de vídeo normalizam os dois lados antes do concat.
+    """
+    cta = Path(cfg.get("cta", "assets/cta.mp4")).expanduser()
+    if not cta.exists():
+        return corpo
+    corpo = Path(corpo)
+    W, H, FPS = tamanho or (1920, 1080, 25)
+    tmp = corpo.with_name(corpo.stem + ".comcta.mp4")
+    fc = (f"[0:v]scale={W}:{H},setsar=1,fps={FPS},format=yuv420p[v0];"
+          f"[1:v]scale={W}:{H},setsar=1,fps={FPS},format=yuv420p[v1];"
+          f"[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a0];"
+          f"[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a1];"
+          f"[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]")
+    run(["ffmpeg", "-v", "error", "-y", "-i", str(corpo), "-i", str(cta), "-filter_complex", fc,
+         "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-preset", "medium",
+         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(tmp)])
+    tmp.replace(corpo)
+    return corpo
+
+
+def render(dir, cfg, rapido=False, sem_audio_original=None):
     """Renderiza plan.json -> output.mp4.
 
     Caminho normal (rapido=False): trim/atrim + concat re-encodando (libx264 -crf 20).
@@ -146,11 +179,17 @@ def render(dir, cfg, rapido=False, sem_audio_original=False):
         # estouraria o render com "parameters do not match".
         i = probe(video)
         tamanho = (i["largura"], i["altura"], i["fps"])
-        cmd += ["-filter_complex", montar_filtro(segs, wavs, sem_audio_original=sem_audio_original,
-                                                 manchete=plan.get("manchete"), dir=dir, tamanho=tamanho),
+        # Default MUDO quando há narração: -18 dB de FALA continua inteligível e briga com
+        # a narração (dois idiomas no mesmo canal). A cama a -18 dB faz sentido pra música
+        # e ambiência, não pra voz — por isso virou opt-in (--com-cama), não o padrão.
+        mudo = True if sem_audio_original is None else sem_audio_original
+        cmd += ["-filter_complex", montar_filtro(segs, wavs, sem_audio_original=mudo,
+                                                 manchete=plan.get("manchete"), dir=dir, tamanho=tamanho,
+                                                 fade_s=float(cfg.get("fade_final_s", 0.8))),
                 "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-preset", "medium",
                 "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out)]
         run(cmd)
+    concatenar_cta(out, cfg, tamanho if not rapido else None)
     vid = json.loads((dir / "metadata.json").read_text()).get("id", dir.name)
     dest = Path(cfg["saida"]).expanduser() / vid; dest.mkdir(parents=True, exist_ok=True)
     for f in ("output.mp4", "plan.json", "notas.json", "unidades.json", "custos.json"):

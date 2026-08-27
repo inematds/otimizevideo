@@ -38,7 +38,7 @@ def cmd_run(a, cfg):
         F_su.substituir(d, cfg, a.imagem, forcar=a.forcar); print("[substituir] ok")
     if a.modo == "B":
         F_na.narrar(d, cfg, a.tts); print("[narrar] ok")
-    out = F_re.render(d, cfg, rapido=a.rapido, sem_audio_original=a.sem_audio_original); print(f"[render] {out}")
+    out = F_re.render(d, cfg, rapido=a.rapido, sem_audio_original=False if a.com_cama else None); print(f"[render] {out}")
     cmd_status(a, cfg, d)
 
 def cmd_status(a, cfg, d=None):
@@ -78,6 +78,8 @@ def main():
         s_.add_argument("--modo", choices="ABC", default="A"); s_.add_argument("--alvo", type=float, default=None)
         s_.add_argument("--transcricao"); s_.add_argument("--visual"); s_.add_argument("--pontuacao"); s_.add_argument("--tts")
         s_.add_argument("--rapido", action="store_true"); s_.add_argument("--sem-audio-original", action="store_true")
+        # com narração o áudio original sai por padrão; --com-cama traz de volta a -18 dB
+        s_.add_argument("--com-cama", action="store_true")
         # modo A+ (Task 10b): troca os trechos de apresentador por ilustração gerada,
         # mantendo o áudio original. Só 'gerado' por enquanto ('broll' ficou adiado).
         s_.add_argument("--substituir", choices=["gerado"]); s_.add_argument("--imagem")
@@ -95,7 +97,7 @@ def main():
         if nome in USA_FORCAR: sp.add_argument("--forcar", action="store_true")
         if nome == "cenas": sp.add_argument("--classificar", action="store_true")
         if nome in ("pontuar", "selecionar"): sp.add_argument("--modo", choices="ABC", default="A"); sp.add_argument("--alvo", type=float)
-        if nome == "render": sp.add_argument("--rapido", action="store_true"); sp.add_argument("--sem-audio-original", action="store_true")
+        if nome == "render": sp.add_argument("--rapido", action="store_true"); sp.add_argument("--sem-audio-original", action="store_true"); sp.add_argument("--com-cama", action="store_true")
     a = p.parse_args(); cfg = carregar_config(a.config)
     if a.cmd == "run": return cmd_run(a, cfg)
     if a.cmd == "ingest": return print(F_ing.ingest(a.fonte, cfg["trabalho"], forcar=a.forcar))
@@ -110,7 +112,7 @@ def main():
     elif a.cmd == "pontuar": F_un.unidades(d, cfg, forcar=False); print(F_po.pontuar(d, cfg, a.modo, a.alvo, a.provedor, forcar=a.forcar))
     elif a.cmd == "selecionar": print(F_se.selecionar(d, cfg, a.modo, a.alvo)); cmd_status(a, cfg, d)
     elif a.cmd == "substituir": print(F_su.substituir(d, cfg, a.provedor, forcar=a.forcar))
-    elif a.cmd == "render": print(F_re.render(d, cfg, rapido=a.rapido, sem_audio_original=a.sem_audio_original))
+    elif a.cmd == "render": print(F_re.render(d, cfg, rapido=a.rapido, sem_audio_original=False if a.com_cama else None))
     elif a.cmd == "narrar": print(F_na.narrar(d, cfg, a.provedor))
 
 if __name__ == "__main__":

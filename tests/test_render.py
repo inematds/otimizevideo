@@ -276,3 +276,49 @@ def test_render_substituir_troca_o_video_e_preserva_duracao(video_teste, tmp_pat
     frame = tmp_path / "f_subst.png"; thumb(out, 0.7, frame)
     r, g, b = Image.open(frame).convert("RGB").resize((1, 1)).getpixel((0, 0))
     assert r > 150 and g < 80 and b < 80, f"segmento não foi substituído pela imagem: RGB={(r, g, b)}"
+
+
+# --- bloco 1: mudo por padrão, fade de saída e CTA colado no fim -----------
+
+def test_montar_filtro_muda_o_original_por_padrao_quando_ha_narracao():
+    # -18 dB de FALA continua inteligível e briga com a narração (dois idiomas no mesmo
+    # canal). A cama a -18 dB só faz sentido pra música/ambiência, então virou opt-in.
+    f = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0}], narracao=["a.wav"])
+    assert "volume=0[o0]" in f and "-18dB" not in f
+    com_cama = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0}], narracao=["a.wav"],
+                             sem_audio_original=False)
+    assert "volume=-18dB[o0]" in com_cama
+
+
+def test_montar_filtro_fade_de_saida_no_fim_do_corpo():
+    # 2.0s + 1.0s de extensão = 3.0s de corpo; o fade de 0.8s começa em 2.2s
+    f = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 1.0}], fade_s=0.8)
+    assert "fade=t=out:st=2.200:d=0.8[v]" in f
+    assert "afade=t=out:st=2.200:d=0.8[a]" in f
+    # sem fade_s o corpo termina direto nos rótulos finais (o afade de 0.04s por segmento
+    # é outra coisa: crossfade de borda de corte, sempre presente)
+    sem = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0}])
+    assert sem.endswith("[vc]null[v]") and "TP=-1.5[a]" in sem
+
+
+def test_concatenar_cta_sem_arquivo_e_no_op(tmp_path):
+    from otv.fases.render import concatenar_cta
+    corpo = tmp_path / "output.mp4"; corpo.write_bytes(b"x")
+    assert concatenar_cta(corpo, {"cta": str(tmp_path / "nao-existe.mp4")}) == corpo
+    assert corpo.read_bytes() == b"x"      # intocado
+
+
+def test_render_cola_o_cta_no_fim(video_teste, tmp_path):
+    # o CTA entra reencodado: o corpo sai 320x240/25fps do fixture e o cta é gerado com
+    # outra taxa de áudio de propósito -- é exatamente o caso que quebrava com -c copy.
+    from otv.util.ffmpeg import run as _run
+    cta = tmp_path / "cta.mp4"
+    _run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=640x360:r=30",
+          "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", "2", "-c:v", "libx264",
+          "-c:a", "aac", "-shortest", str(cta)])
+    _preparar(tmp_path, video_teste, "cta", {"modo": "A", "alvo_s": 3, "total_s": 3.0, "narracao": None,
+        "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0},
+                      {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]})
+    out = render(tmp_path, {"saida": str(tmp_path / "saida"), "cta": str(cta), "fade_final_s": 0.5})
+    # 3.0s de corpo + 2.0s de CTA
+    assert abs(probe(out)["duracao_s"] - 5.0) < 0.25, probe(out)

@@ -55,4 +55,8 @@ def tts_elevenlabs(texto, out, voz=None):
 
 def tts(texto, out, cfg, provedor=None):
     p = provedor or cfg.get("tts", "inemavox")
-    return tts_elevenlabs(texto, out) if p == "elevenlabs" else tts_inemavox(texto, out)
+    if p == "elevenlabs":
+        return tts_elevenlabs(texto, out, cfg.get("voz_elevenlabs"))
+    # a voz e a engine saem do config.yaml (`voz:` / `tts_engine:`) em vez de ficarem
+    # presas no default da função: é a única coisa que o usuário troca com frequência.
+    return tts_inemavox(texto, out, cfg.get("voz", "rachel"), cfg.get("tts_engine", "chatterbox"))
