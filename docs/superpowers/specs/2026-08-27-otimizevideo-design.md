@@ -275,7 +275,42 @@ otimizevideo/
 Reframe 9:16, legendas embutidas, lote/playlist, interface web, remoção da pessoa por crop/blur
 dentro do frame (só descarte de cena por enquanto), diarização.
 
-## 11. Custo por vídeo de 25 min (defaults)
+## 11. Aprendizados do spike (2026-08-27, vídeo dQYKcjvXhIY, 20 min, inglês)
+
+Spike descartável rodou ingest → Groq → unidades → pontuação → seleção → ffmpeg. Resultado:
+**1206 s → 113,5 s, 18 segmentos, custo ≈ US$0,03, render 45 s.** Saída em
+`~/projetos/output/otimizevideo/dQYKcjvXhIY/output.mp4`. O que muda no design:
+
+1. **`z-ai/glm-5.3-flash` no OpenRouter não permite desligar reasoning** ("Reasoning is mandatory
+   for this endpoint"). Sem controle, levou > 13 min e não respondeu. Com `reasoning: {effort: "low"}`
+   respondeu em 64 s, US$0,004, JSON válido, 325/325 notas. → O provedor `openrouter` sempre manda
+   `reasoning.effort = low` (configurável). `max_tokens` ≥ 20000 pra 325 unidades.
+2. **`google/gemini-2.5-flash-lite`**: 33 s, US$0,006, JSON válido — alternativa de mesmo nível.
+   `google/gemini-3.7-flash`: 57 s, US$0,024. `qwen/qwen3.5-flash-02-23` devolveu vazio → fora.
+3. **Concordância entre modelos:** GLM e Gemini-lite escolheram 21 unidades cada, 14 em comum
+   (Jaccard 0,50). O núcleo converge; a borda varia. Não precisa de painel de modelos.
+4. **Timestamps do Whisper-turbo (Groq) se sobrepõem** entre palavras vizinhas (ex.: unidade N
+   começa 0,4 s antes da N−1 terminar). Consequências e correções:
+   - `transcrever` normaliza: `ini = max(ini, fim_anterior)`, `fim = max(fim, ini + 0,05)`.
+   - `min_segmento_s` é aplicado **depois** do snap, não antes.
+   - `whisperx` como slot de precisão continua valendo.
+5. **Tempo descartado não volta:** a mochila encheu 150 s de unidades, o filtro de mínimo removeu
+   ~35 s e a saída ficou em 113 s. → Seleção em duas passadas: (a) mochila, (b) fusão/filtro,
+   (c) se `total < alvo × (1 − tolerancia)`, repete a mochila só com candidatos que **estendem
+   segmentos existentes** (vizinhos), até fechar o alvo.
+6. **Picotado:** média de 6 s por segmento. → Regra de coesão: depois da mochila, cada segmento é
+   estendido pros vizinhos com `nota ≥ nota_minima − 2` até atingir `min_segmento_ideal_s` (8 s),
+   se couber no teto. Menos cortes, mais fôlego.
+7. **Gancho:** a unidade 0 ("You've been told that aging is inevitable…") teve nota 7 e ficou de
+   fora; o vídeo abriu na unidade 2. → O prompt pede também `"gancho": [ids]` (1–2 unidades que
+   melhor abrem o vídeo) e a seleção força a inclusão do gancho no início.
+8. **Unidades:** 325 unidades, média 3,8 s, fronteiras em pontuação/pausa funcionaram bem —
+   nenhum corte no meio de palavra ao ouvir a saída. `fins_segmento` do Whisper ajuda porque as
+   `words` não trazem pontuação; pedir `timestamp_granularities=[word, segment]`.
+9. **Ollama local (`qwen3.8:27b`, think off)** funciona como slot `pontuacao: ollama` (R$0) mas
+   é lento pra 325 unidades (> 10 min com GPU a 94 %). Vale como fallback offline, não default.
+
+## 12. Custo por vídeo de 25 min (defaults)
 
 | Fase | Custo |
 |---|---|
