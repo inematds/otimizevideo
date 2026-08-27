@@ -38,15 +38,32 @@ def _usadas(plan):
     return [(s["in"], s["out"]) for s in plan["segmentos"]]
 
 
+MAX_ROSTO = 0.04        # fração de área do maior rosto tolerada na abertura
+
+
+def sem_apresentador(c):
+    """Cena serve pra abertura? Rosto grande, talking_head e PiP ficam de fora.
+
+    Não basta olhar `visual`: a classificação é por cena, e num vídeo estilo "apresentador
+    com gráfico" a cena sai rotulada `grafico` com o apresentador em quadro do mesmo jeito.
+    O `rosto_pct` (medido localmente, cena a cena) é o filtro que pega esse caso — e o `pip`
+    pega o apresentador em janelinha. Sem isso a chamada abre apresentando o apresentador,
+    que é justamente o que ela não deveria fazer.
+    """
+    return (c.get("visual") != "talking_head" and not c.get("pip")
+            and float(c.get("rosto_pct") or 0) <= MAX_ROSTO)
+
+
 def escolher_cenas(cenas, plan, n=N_BLOCOS - 1, dur=DUR_CLIPE):
-    """Cenas visualmente interessantes que NÃO entraram no corte, espalhadas pelo vídeo."""
+    """Cenas visualmente interessantes, SEM apresentador, que não entraram no corte."""
     usadas = _usadas(plan)
     def livre(c):
         meio = (c["ini"] + c["fim"]) / 2
         return not any(a - 1 <= meio <= b + 1 for a, b in usadas)
-    cand = [c for c in cenas if c.get("visual") in VISUAL_BOM and (c["fim"] - c["ini"]) >= dur and livre(c)]
-    if len(cand) < n:  # vídeo pobre de imagem: aceita qualquer cena longa o bastante
-        cand = [c for c in cenas if (c["fim"] - c["ini"]) >= dur and livre(c)] or list(cenas)
+    base = [c for c in cenas if sem_apresentador(c) and (c["fim"] - c["ini"]) >= dur]
+    cand = [c for c in base if c.get("visual") in VISUAL_BOM and livre(c)]
+    if len(cand) < n:                       # afrouxa o TIPO de imagem, nunca o apresentador
+        cand = [c for c in base if livre(c)] or base
     if not cand:
         return []
     # espalha: divide a linha do tempo em n faixas e pega uma cena de cada
@@ -238,8 +255,16 @@ def abertura(dir, cfg, provedor=None, forcar=False):
 
     escolhidas = escolher_cenas(cenas, plan)
     extrair_clipes(video, escolhidas, ativos, tamanho=tamanho)
-    # capa: um quadro do primeiro segmento do corte (o gancho), escurecido pelo véu do CSS
-    thumb(video, plan["segmentos"][0]["in"] + 1.0, ativos / "capa.jpg", largura=tamanho[0])
+    # capa: NUNCA o primeiro segmento do corte — ele é o gancho, quase sempre o apresentador
+    # falando (foi o que aconteceu em 2026-08-27: a capa abria com o apresentador). Prefere a
+    # cena de menor rosto entre as candidatas; sem nenhuma, cai no meio do vídeo.
+    limpas = [c for c in cenas if sem_apresentador(c)]
+    if limpas:
+        capa_cena = min(limpas, key=lambda c: (float(c.get("rosto_pct") or 0), -(c["fim"] - c["ini"])))
+        t_capa = capa_cena["ini"] + min(1.0, (capa_cena["fim"] - capa_cena["ini"]) / 2)
+    else:
+        t_capa = probe(video)["duracao_s"] / 2
+    thumb(video, t_capa, ativos / "capa.jpg", largura=tamanho[0])
 
     llm = criar_llm(cfg, cfg["pontuacao"])
     blocos, uso = roteiro(plan, notas, llm, meta.get("titulo", ""), n=1 + len(escolhidas))

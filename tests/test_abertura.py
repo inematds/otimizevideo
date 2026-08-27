@@ -48,3 +48,23 @@ def test_video_fica_fora_da_secao_temporizada():
     antes_da_secao = corpo.split("<section")[0]
     assert "<video" in antes_da_secao          # o vídeo vem antes, no nível da raiz
     assert "muted" in antes_da_secao and 'id="bg1"' in antes_da_secao
+
+
+def test_sem_apresentador_rejeita_talking_head_pip_e_rosto_grande():
+    from otv.fases.abertura import sem_apresentador
+    assert sem_apresentador({"visual": "grafico", "rosto_pct": 0.0, "pip": False})
+    assert not sem_apresentador({"visual": "talking_head", "rosto_pct": 0.0, "pip": False})
+    assert not sem_apresentador({"visual": "grafico", "rosto_pct": 0.0, "pip": True})
+    # cena rotulada 'grafico' mas com o apresentador em quadro: a classificação é por cena,
+    # o rosto_pct é o que pega esse caso (bug real: a chamada abria apresentando o apresentador)
+    assert not sem_apresentador({"visual": "grafico", "rosto_pct": 0.22, "pip": False})
+
+
+def test_escolher_cenas_nunca_afrouxa_o_apresentador():
+    # sem nenhuma cena do tipo certo, a função afrouxa o TIPO de imagem -- mas jamais
+    # aceita talking_head/pip/rosto grande
+    cenas = [{"id": 0, "ini": 0.0, "fim": 30.0, "visual": "talking_head", "rosto_pct": 0.3, "pip": False},
+             {"id": 1, "ini": 40.0, "fim": 70.0, "visual": "outro", "rosto_pct": 0.0, "pip": False},
+             {"id": 2, "ini": 80.0, "fim": 110.0, "visual": "outro", "rosto_pct": 0.5, "pip": False}]
+    esc = escolher_cenas(cenas, {"segmentos": []}, n=2)
+    assert [c["id"] for c in esc] == [1]
