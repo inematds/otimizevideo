@@ -15,6 +15,7 @@ sem queimar o que a pessoa vai ver em seguida.
 import json, re, shutil, subprocess, time
 from pathlib import Path
 from otv.provedores.llm import criar_llm
+from otv.fases.narrar import truncar_por_orcamento
 from otv.provedores.tts import tts
 from otv.util.custos import registrar
 from otv.util.fala import forma_fala
@@ -22,8 +23,12 @@ from otv.util.ffmpeg import probe, run, thumb
 
 DUR_CLIPE = 2.6         # segundos de vídeo por bloco (o texto garrafal precisa de tempo de leitura)
 MIN_BLOCO = 2.4         # piso de duração de um bloco, mesmo com fala curta
+# Teto por bloco: a chamada inteira tem que ficar em 10–15 s (foi o que o usuário pediu).
+# Sem teto, 4 blocos com fala de 6 s cada dão 25 s de abertura — vira introdução, não chamada.
+MAX_BLOCO = 4.8
+MAX_PALAVRAS_FALA = 10
 FOLGA_BLOCO = 0.45      # respiro depois da fala, antes de trocar de bloco
-N_BLOCOS = 4            # capa + 3 promessas  ≈ 11–14 s
+N_BLOCOS = 3            # capa + 2 promessas  ≈ 12–14 s
 VISUAL_BOM = ("grafico", "demo_tela", "slide")
 
 
@@ -86,8 +91,10 @@ def roteiro(plan, notas, llm, titulo, n=N_BLOCOS):
     for b in resp.get("blocos", []):
         k = int(b.get("k", -1))
         if 0 <= k < n:
+            # trunca ANTES do TTS: fala longa demais estoura o teto de duração do bloco e
+            # a chamada deixa de ser chamada (mesma lógica do orçamento de palavras do narrar)
             blocos[k] = {"titulo": str(b.get("titulo", ""))[:48].upper(),
-                         "fala": str(b.get("fala", "")).strip()}
+                         "fala": truncar_por_orcamento(str(b.get("fala", "")).strip(), MAX_PALAVRAS_FALA)}
     return blocos, uso
 
 
@@ -98,37 +105,45 @@ def _esc(s):
 def montar_html(blocos, capa_jpg, clipes, W=1920, H=1080):
     """Gera a composição HyperFrames da abertura (capa + blocos com vídeo e texto garrafal)."""
     total = round(sum(b["dur"] for b in blocos), 2)
-    partes, anim, t = [], [], 0.0
+    # O <video> fica no NÍVEL DA RAIZ, nunca dentro da <section> temporizada: o extrator de
+    # quadros resolve o data-start do vídeo sem o offset do ancestral, então wrapper e vídeo
+    # temporizados ao mesmo tempo discordam e o clipe mostra o quadro errado
+    # (`video_nested_in_timed_element`). O fundo entra primeiro no DOM (fica atrás) e a
+    # <section> por cima carrega só véu, faixa e texto.
+    fundos, partes, anim, t_ = [], [], [], 0.0
     for k, b in enumerate(blocos):
-        fim = t + b["dur"]
+        fim = t_ + b["dur"]
         if k == 0:
-            fundo = f'<img class="bgimg" src="assets/capa.jpg" alt="">'
+            fundos.append(f'    <img class="bg clip" id="bg{k}" src="assets/capa.jpg" alt="" '
+                          f'data-start="{t_:.2f}" data-duration="{b["dur"]:.2f}" data-track-index="{10 + k}">')
         else:
-            # vídeo NÃO leva class="clip" — o framework controla play/seek por data-start
-            fundo = (f'<video class="bgvid" src="assets/clip_{k - 1}.mp4" data-start="{t:.2f}" '
-                     f'data-duration="{b["dur"]:.2f}" data-track-index="{10 + k}" data-volume="0"></video>')
+            # vídeo NÃO leva class="clip" (o framework cuida de play/seek por data-start),
+            # mas PRECISA de id — sem id o renderer não o descobre e o clipe sai congelado.
+            fundos.append(f'    <video class="bg" id="bg{k}" src="assets/clip_{k - 1}.mp4" '
+                          f'data-start="{t_:.2f}" data-duration="{b["dur"]:.2f}" '
+                          f'data-track-index="{10 + k}" data-volume="0" muted></video>')
         classe = "bloco capa" if k == 0 else "bloco"
         partes.append(
-            f'    <section class="{classe} clip" id="b{k}" data-start="{t:.2f}" '
+            f'    <section class="{classe} clip" id="b{k}" data-start="{t_:.2f}" '
             f'data-duration="{b["dur"]:.2f}" data-track-index="{1 if k % 2 == 0 else 3}">\n'
-            f'      {fundo}\n'
             f'      <div class="veu"></div>\n'
             f'      <div class="faixa" id="fx{k}"></div>\n'
             f'      <div class="txt">\n'
-            f'        <div class="kick" id="kk{k}">{"AGORA" if k else "CAPA"}</div>\n'
+            f'        <div class="kick" id="kk{k}">{"EM SEGUIDA" if k else "AGORA"}</div>\n'
             f'        <h1 id="tt{k}">{_esc(b["titulo"])}</h1>\n'
             f'      </div>\n'
             f'    </section>')
-        partes.append(f'    <audio id="a{k}" data-start="{t + 0.18:.2f}" data-duration="{b["wav"]:.2f}" '
+        partes.append(f'    <audio id="a{k}" data-start="{t_ + 0.18:.2f}" data-duration="{b["wav"]:.2f}" '
                       f'data-track-index="{30 + k}" src="assets/fala_{k}.wav"></audio>')
         anim.append(
-            f'      tl.fromTo("#fx{k}",{{scaleX:0}},{{scaleX:1,duration:.42,ease:"power3.out"}},{t + 0.05:.2f});\n'
-            f'      tl.fromTo("#kk{k}",{{opacity:0,x:-24}},{{opacity:1,x:0,duration:.4,ease:"power2.out"}},{t + 0.22:.2f});\n'
-            f'      tl.fromTo("#tt{k}",{{opacity:0,y:44}},{{opacity:1,y:0,duration:.55,ease:"power3.out"}},{t + 0.30:.2f});\n'
-            f'      tl.to("#b{k} .bgimg, #b{k} .bgvid",{{scale:1.09,duration:{b["dur"]:.2f},ease:"none"}},{t:.2f});\n'
-            f'      tl.to("#b{k}",{{opacity:0,duration:.28,ease:"power2.in"}},{fim - 0.28:.2f});\n'
-            f'      tl.set("#b{k}",{{opacity:0}},{fim:.2f});')
-        t = fim
+            f'      tl.fromTo("#fx{k}",{{scaleX:0}},{{scaleX:1,duration:.42,ease:"power3.out"}},{t_ + 0.05:.2f});\n'
+            f'      tl.fromTo("#kk{k}",{{opacity:0,x:-24}},{{opacity:1,x:0,duration:.4,ease:"power2.out"}},{t_ + 0.22:.2f});\n'
+            f'      tl.fromTo("#tt{k}",{{opacity:0,y:44}},{{opacity:1,y:0,duration:.55,ease:"power3.out"}},{t_ + 0.30:.2f});\n'
+            + (f'      tl.to("#bg{k}",{{scale:1.10,duration:{b["dur"]:.2f},ease:"none"}},{t_:.2f});\n' if k == 0 else "")
+            + f'      tl.to("#b{k}",{{opacity:0,duration:.28,ease:"power2.in"}},{fim - 0.28:.2f});\n'
+              f'      tl.set("#b{k}",{{opacity:0}},{fim:.2f});')
+        t_ = fim
+    corpo_html = chr(10).join(fundos + partes)
     css_fonts = (Path(__file__).resolve().parents[2] / "assets/fonts/fonts.css").read_text()
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -142,7 +157,7 @@ def montar_html(blocos, capa_jpg, clipes, W=1920, H=1080):
   body{{font-family:Inter,sans-serif;color:var(--fg)}}
   #root{{position:relative;width:{W}px;height:{H}px;background:var(--bg);overflow:hidden}}
   .bloco{{position:absolute;inset:0;overflow:hidden}}
-  .bgimg,.bgvid{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:52% 48%}}
+  .bg{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:52% 48%}}
   /* véu: sem ele o texto garrafal briga com a imagem e some em quadro claro */
   .veu{{position:absolute;inset:0;background:
         linear-gradient(90deg,rgba(13,19,33,.94) 0%,rgba(13,19,33,.78) 46%,rgba(13,19,33,.18) 100%),
@@ -164,7 +179,7 @@ def montar_html(blocos, capa_jpg, clipes, W=1920, H=1080):
 </head>
 <body>
   <div id="root" data-composition-id="main" data-start="0" data-width="{W}" data-height="{H}">
-{chr(10).join(partes)}
+{corpo_html}
     <div id="progress" data-layout-ignore></div>
     <script src="assets/gsap.min.js"></script>
     <script>
@@ -216,7 +231,7 @@ def abertura(dir, cfg, provedor=None, forcar=False):
                  "-t", f"{MIN_BLOCO}", str(wav)])
         b["wav"] = float(run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                               "-of", "csv=p=0", str(wav)]).strip())
-        b["dur"] = round(max(MIN_BLOCO, b["wav"] + FOLGA_BLOCO), 2)
+        b["dur"] = round(min(MAX_BLOCO, max(MIN_BLOCO, b["wav"] + FOLGA_BLOCO)), 2)
 
     raiz = Path(__file__).resolve().parents[2]
     shutil.copy(raiz / "assets" / "gsap.min.js", ativos / "gsap.min.js")
