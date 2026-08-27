@@ -14,8 +14,15 @@ from otv.util.custos import registrar
 # speaking to camera": a primeira rodada (2026-08-27) montava o prompt a partir da DESCRIÇÃO
 # da cena -- que descreve justamente o apresentador -- e gerava outro apresentador, ou seja,
 # substituía talking head por talking head. O assunto tem que vir do que está sendo DITO.
-SUFIXO_PROMPT = ("editorial illustration, dark, cinematic, no text, no words, no letters, "
-                 "no person speaking to camera")
+# Negação não funciona: "no people" no prompt positivo do flux é ignorado -- ele desenhava um
+# rosto sempre que a fala citava alguém (Bezos, Altman, "o cientista"), e a substituição só
+# trocava um rosto por outro. O que funciona é dizer o que DEVE aparecer, então o prompt vira
+# uma diretiva de natureza-morta conceitual, com o assunto entrando como TEMA e não como cena.
+PREFIXO_PROMPT = ("Conceptual editorial illustration, dark cinematic still life. "
+                  "Depict only objects, environments and abstract forms — laboratory glassware, "
+                  "molecular structures, machinery, instruments, landscapes, geometry. "
+                  "Empty of any person. Theme: ")
+SUFIXO_PROMPT = "Moody low-key lighting, muted palette, unlettered, no signage."
 MAX_TEXTO = 240
 
 
@@ -41,8 +48,8 @@ def montar_prompt(texto, topico, descricao=None):
     apresentador -- exatamente o que o modo A+ existe para eliminar.
     """
     assunto = (texto or "").strip()[:MAX_TEXTO] or (descricao or "").strip()
-    partes = [p for p in (assunto, (topico or "").strip()) if p]
-    return ", ".join(partes + [SUFIXO_PROMPT])
+    tema = ". ".join(p for p in (assunto, (topico or "").strip()) if p)
+    return f"{PREFIXO_PROMPT}{tema}. {SUFIXO_PROMPT}"
 
 
 def substituir(dir, cfg, provedor=None, gerador=None, forcar=False):

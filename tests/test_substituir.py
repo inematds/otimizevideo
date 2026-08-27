@@ -32,15 +32,18 @@ def test_montar_prompt_usa_a_fala_e_nao_a_descricao_do_apresentador():
     # prompt gerava outro apresentador (falha real de 2026-08-27, primeira rodada da 10b)
     p = montar_prompt("ratos cegos voltaram a enxergar depois de três genes",
                       "envelhecimento", descricao="homem de terno falando para a câmera")
-    assert p.startswith("ratos cegos voltaram a enxergar depois de três genes, envelhecimento")
+    assert "ratos cegos voltaram a enxergar depois de três genes. envelhecimento" in p
     assert "homem de terno" not in p
-    assert "no text" in p and "no person speaking to camera" in p
+    # o modo A+ existe para tirar gente da tela; negação ("no people") o flux ignora, então
+    # o prompt manda POSITIVAMENTE desenhar só objetos/ambientes
+    assert "Depict only objects" in p and "Empty of any person" in p
+    assert "unlettered" in p
 
 
 def test_montar_prompt_cai_na_descricao_so_sem_texto():
-    assert montar_prompt("", "", descricao="gráfico de barras subindo").startswith("gráfico de barras subindo,")
+    assert "Theme: gráfico de barras subindo." in montar_prompt("", "", descricao="gráfico de barras subindo")
     # campos vazios não deixam vírgula solta
-    assert montar_prompt(None, "").startswith("editorial illustration")
+    assert montar_prompt(None, "").startswith("Conceptual editorial illustration")
 
 
 def test_substituir_gera_so_os_talking_head_e_anota_no_plan(tmp_path):
