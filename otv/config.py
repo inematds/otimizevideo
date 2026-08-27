@@ -7,7 +7,8 @@ DEFAULTS = {
                 "ollama": "qwen3.8:27b", "whisper_local": "turbo", "claude_cli": "sonnet"},
     "openrouter": {"reasoning_effort": "low", "max_tokens": 20000},
     "selecao": {"alvo_s": 120, "tolerancia": 0.25, "min_segmento_s": 3, "min_segmento_ideal_s": 8,
-                "pausa_fronteira_ms": 400, "folga_ms": 120, "cota_topico_pct": 40, "nota_minima": 5},
+                "pausa_fronteira_ms": 400, "folga_ms": 120, "cota_topico_pct": 40, "nota_minima": 5,
+                "max_unidade_s": 12},
     "saida": "~/projetos/output/otimizevideo", "trabalho": "trabalho",
 }
 

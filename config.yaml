@@ -20,5 +20,6 @@ selecao:
   folga_ms: 120
   cota_topico_pct: 40
   nota_minima: 5
+  max_unidade_s: 12
 saida: ~/projetos/output/otimizevideo
 trabalho: trabalho

@@ -15,11 +15,27 @@ def test_funde_unidade_curta_na_anterior():
     u = montar_unidades(pal, [])
     assert len(u) == 1 and u[0]["texto"] == "Primeira frase. Ok." and u[0]["fim"] == 1.3
 
-def test_corta_unidade_longa_na_maior_pausa():
+def test_fecha_por_fim_de_segmento():
     pal = [P(f"p{i}", i * 1.0, i * 1.0 + 0.7) for i in range(15)]  # 15 s sem pontuação, pausas iguais de 0.3
-    pal[7]["fim"] = 7.55                                              # pausa maior (0.45) depois de p7 — abaixo de 0.4? não: usa fim_segmento
+    pal[7]["fim"] = 7.55                                              # marcado em fins_segmento — fecha ali, não por pausa/teto
     u = montar_unidades(pal, fins_segmento=[7.55], pausa_s=0.6)
     assert len(u) == 2 and u[0]["texto"].endswith("p7")
+
+def test_corta_na_maior_pausa_interna_ao_atingir_teto():
+    # 40 palavras contínuas (0.3 s cada), sem pontuação, sem fins_segmento, pausas de
+    # 0.02 s em toda parte — nenhuma dispara pausa_s (0.4) — exceto uma de 0.09 s após
+    # a palavra 20 (ainda abaixo de pausa_s). O trecho cruza o teto de 12 s por volta da
+    # palavra ~37; o corte forçado tem que cair exatamente na maior pausa interna (0.09 s,
+    # após w20), não esperar um limiar fixo, e nenhuma unidade resultante pode passar de 12 s.
+    pal = []; t = 0.0
+    for i in range(40):
+        ini = t; fim = round(ini + 0.3, 3)
+        pal.append(P(f"w{i}", ini, fim))
+        t = round(fim + (0.09 if i == 20 else 0.02), 3)
+    u = montar_unidades(pal, [], pausa_s=0.4, max_dur_s=12.0)
+    assert all(x["dur"] <= 12.0 for x in u)
+    assert u[0]["texto"].split()[-1] == "w20"
+    assert u[1]["texto"].split()[0] == "w21"
 
 def test_atribuir_cenas():
     u = [{"id": 0, "ini": 0, "fim": 2, "dur": 2, "texto": "a"}, {"id": 1, "ini": 5, "fim": 7, "dur": 2, "texto": "b"}]
