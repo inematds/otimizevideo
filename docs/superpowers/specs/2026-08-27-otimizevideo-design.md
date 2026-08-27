@@ -395,3 +395,47 @@ foram executados; o que segue é o resultado real, não o esperado.
 Mais uma, específica da 10b: o prompt da ilustração vinha da **descrição da cena**, que num
 trecho `talking_head` descreve o próprio apresentador — o flux devolvia outro apresentador,
 com letreiro garrancho. O assunto passou a vir da **fala** do segmento.
+
+
+## 11d. Rodada de acabamento editorial (2026-08-27, decisões do usuário)
+
+Depois de assistir os dois primeiros vídeos, o usuário pediu cinco coisas. O que saiu:
+
+| Pedido | O que foi feito |
+|---|---|
+| Manchete editorial "tipo capa de revista", cobrindo parte do quadro | A manchete em `drawtext` (uma linha, DejaVu, tarja preta) foi substituída por uma **composição HyperFrames**: caixa alta em Sora 800 a 148 px, faixa âmbar, véu em gradiente cobrindo a esquerda do quadro. `drawtext` não sustenta várias linhas com hierarquia — cada quebra vira um filtro separado, sem entrelinha e sem como conferir antes de renderizar. |
+| Chamada de 10–15 s antes do conteúdo, sem mexer no corte | Fase `abertura`: 3 blocos (capa + 2 promessas), b-roll tirado de **cenas que não entraram no corte** (não queima o que a pessoa vai ver), texto garrafal e narração. Saiu com **12,2 s**. Soma ao alvo em vez de dividir. |
+| CTA fixo no fim | `assets/cta.mp4`, card "SIGA O CANAL" de 4,6 s, narrado. Colado por `costurar()` em todo render. |
+| Voz original sai quando há dublagem | O default virou mudo; `--com-cama` traz a cama a −18 dB de volta. Fala a −18 dB continua inteligível e briga com a narração — a cama só faz sentido pra música/ambiência. |
+| Definir a voz | `voz: rachel` e `tts_engine: chatterbox` no `config.yaml` (era o default do código, não estava exposto). |
+
+Mais o **modo N**, criado nesta rodada: mantém o vídeo inteiro na tela e reescreve a fala com
+fluência (`prompts/narrar_n.md` proíbe acrescentar fato). Não depende de classificação visual e
+usa teto de congelamento de 6 s — o quadro congela esperando a narração terminar em vez de a
+frase ser truncada.
+
+### O que veio das skills `video-explicativo` / `videoprodutor`
+
+Ler essas duas skills antes de implementar evitou reinventar quatro coisas e revelou um defeito:
+
+1. **HyperFrames em vez de PNG composto** — HTML+CSS+GSAP renderizado por Chrome headless, com
+   `lint` e `check` que acusam contrato quebrado antes do render. É o motor da capa, da chamada e
+   do CTA.
+2. **`fetch-fonts.mjs`** — baixa as `.woff2` e embute `@font-face` local. Google Fonts por
+   `<link>` não funciona no render headless (o `lint` reprova).
+3. **`house-style.md`** — a identidade já estava especificada: `#0D1321` de fundo, âmbar `#FFC300`
+   como accent único, Sora 700–800 em 72–172 px. Não foi invenção desta rodada.
+4. **`revisao-texto.md` — o defeito.** Cada frase tem duas formas: a de tela (grafia original) e a
+   de fala (termo em inglês reescrito foneticamente, sigla e URL expandidas). O primeiro dublado
+   mandava o roteiro **cru** pro TTS, num vídeo cheio de `AlphaFold`, `DeepMind` e `Nature
+   Medicine`. Virou `otv/util/fala.py`, código determinístico e testável em vez de instrução de
+   prompt.
+
+### Armadilhas do contrato do HyperFrames (custaram render)
+
+- Um tween de ambiente mais longo que o total faz o vídeo inteiro durar o tween: um `duration:14`
+  num card de 4,6 s rendeu **14 s**, com 9,4 s de card parado. O framework usa `tl.duration()`
+  como fim.
+- `<video>` não pode ficar dentro de um elemento que também tem `data-start` — o extrator resolve
+  o start do vídeo sem o offset do ancestral e o clipe mostra o quadro errado.
+- `<video>` com `data-start` precisa de `id` (senão sai congelado) e de `muted`.
