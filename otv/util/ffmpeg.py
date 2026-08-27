@@ -1,5 +1,4 @@
 import json, subprocess
-from pathlib import Path
 
 def run(cmd):
     r = subprocess.run(cmd, capture_output=True, text=True)
