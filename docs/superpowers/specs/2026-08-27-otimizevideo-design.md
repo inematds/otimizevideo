@@ -311,6 +311,25 @@ Spike descartável rodou ingest → Groq → unidades → pontuação → seleç
    notas, 408 s (6,8 min) com GPU a 94 %, seleção de 20 segmentos / 131,8 s. Concordância com o GLM:
    11 de 22 unidades (Jaccard 0,34) — menor que GLM×Gemini (0,50). Vale como fallback offline, não default.
 
+## 11b. Ajustes após revisão do usuário no spike (2026-08-27)
+
+10. **Onde está o apresentador:** detecção de rosto nos 18 trechos do spike achou o apresentador em 7
+    (trechos 0, 1, 6, 12, 13, 14, 17). O `plan.json` marca cada segmento com `visual` e o usuário decide
+    o que fazer com os `talking_head`. Além de **descartar** (modo B), entra a opção **substituir**:
+    `--substituir gerado` troca a imagem do trecho por uma ilustração gerada (flux2-klein, prompt = a
+    `descricao` do tópico) mantendo o áudio original; `--substituir broll` reaproveita uma cena `outro|demo|grafico`
+    do mesmo tópico no próprio vídeo. Fica como modo **A+** (áudio original, sem rosto). Só descartar e
+    substituir-por-gerado entram no primeiro plano; `broll` depois.
+11. **Fecho cortado:** a conclusão do vídeo ([319] nota 7 + [320] "As of this year, it is." nota 8) ficou de
+    fora porque [320] tem 2,1 s e o mínimo por segmento a removeu sem puxar a vizinha. → O prompt devolve
+    também `"fecho": [ids]`; a seleção força gancho no início e fecho no final, e **estende gancho/fecho
+    pros vizinhos** (nota ≥ nota_minima − 3) até cumprir `min_segmento_s`, antes de qualquer filtro.
+12. **Manchete no topo:** o prompt devolve `"manchete"` (≤ 8 palavras). O render escreve a manchete sobre
+    os primeiros 4 s (ffmpeg `drawtext`, faixa escura semitransparente no topo, fade in/out), em
+    `plan.json → "manchete"`; o usuário pode editar o texto antes de renderizar.
+13. Prompts finais em `prompts/pontuar.md`, `prompts/classificar.md`, `prompts/narrar.md`
+    (versão com manchete/gancho/fecho e escala de notas explícita).
+
 ## 12. Custo por vídeo de 25 min (defaults)
 
 | Fase | Custo |

@@ -1754,6 +1754,69 @@ git add docs FALHAS.md 2>/dev/null; git commit -m "docs: validação ponta a pon
 
 ---
 
+## Adendo (revisão do usuário, spec §11b): fecho, manchete, substituir apresentador
+
+Estas mudanças se aplicam por cima das tasks acima. O executor lê a task e este adendo juntos.
+
+**Task 1 — `validar_notas`** também devolve `"fecho"` (mesma regra do `gancho`, até 2 ids) e
+`"manchete"` (string ≤ 80 chars, default `""`). Teste extra:
+```python
+def test_validar_notas_fecho_e_manchete():
+    n = validar_notas({"notas": [{"id": 0, "nota": 1}], "fecho": [0, 5], "manchete": "IA contra o envelhecimento"}, 2)
+    assert n["fecho"] == [0] and n["manchete"] == "IA contra o envelhecimento"
+```
+
+**Task 7 — prompt** é o arquivo `prompts/pontuar.md` já commitado (com manchete/gancho/fecho e escala de
+notas). `pontuar()` grava `manchete`, `gancho`, `fecho` no `notas.json`.
+
+**Task 8 — seleção.** Substituir o passo "1. gancho forçado" por:
+```python
+    # 1. âncoras: gancho (início) e fecho (fim), estendidas pros vizinhos até o mínimo
+    def ancorar(ids):
+        nonlocal esc, total
+        ids = [i for i in ids if i in eleg_ids]
+        for i in ids:
+            esc.add(i); total += por_id[i]["dur"]
+        bloco = sorted(ids)
+        while bloco and _dur(bloco) < sel["min_segmento_s"]:
+            viz = [j for j in (bloco[0] - 1, bloco[-1] + 1) if j in eleg_ids and j not in esc and por_id[j]["nota"] >= nmin - 3]
+            if not viz:
+                break
+            j = max(viz, key=lambda j: por_id[j]["nota"]); esc.add(j); total += por_id[j]["dur"]; bloco = sorted(bloco + [j])
+    esc, total, por_topico = set(), 0.0, {}
+    ancorar(notas.get("gancho", [])); ancorar(notas.get("fecho", []))
+```
+e, ao montar o `plan`, incluir `"manchete": notas.get("manchete", "")`. Teste extra:
+```python
+def test_fecho_forcado_e_estendido():
+    us = [U(i, i * 3.0, 2.1) for i in range(8)]                 # unidades de 2.1 s (< mínimo 3 s)
+    plan = selecionar_plan(us, N([9, 9, 9, 9, 9, 0, 6, 8], fecho=[7]), [], {**SEL, "alvo_s": 12}, "A", 12)
+    ultimo = plan["segmentos"][-1]["unidades"]
+    assert 7 in ultimo and 6 in ultimo                          # fecho puxou a vizinha 6 pra cumprir 3 s
+```
+(`N()` do teste ganha o parâmetro `fecho=None` igual ao `gancho`.)
+
+**Task 9 — manchete.** `montar_filtro` recebe `manchete: str|None`; se houver, o `[v]` final passa por:
+```python
+        texto = manchete.replace("\\", "\\\\").replace(":", "\\:").replace("'", "’")
+        fc.append(f"[vc]drawbox=y=0:h=ih*0.16:color=black@0.55:t=fill:enable='lt(t,4)',"
+                  f"drawtext=text='{texto}':fontcolor=white:fontsize=h*0.055:x=(w-text_w)/2:y=h*0.05:"
+                  f"alpha='if(lt(t,0.5),t*2,if(lt(t,3.5),1,(4-t)*2))':enable='lt(t,4)'[v]")
+```
+no lugar de `[vc]null[v]`. Fonte: usar `fontfile=` da DejaVu Sans se o ffmpeg não achar fonte padrão
+(`fc-match DejaVuSans`). Teste: `montar_filtro([...], manchete="A:B")` contém `drawtext=text='A\\:B'`.
+
+**Task 10b (nova) — modo A+ `--substituir gerado`.** Para cada segmento com `visual == "talking_head"`
+no `plan.json`: gerar uma imagem 16:9 com flux2-klein (prompt = `descricao` da cena + tópico + "editorial
+illustration, dark, no text"), salvar em `subst/seg_NN.png`, e no render trocar `[0:v]trim=…` por
+`movie=subst/seg_NN.png,loop=…,zoompan` (Ken Burns lento) com a **mesma duração**, mantendo `[0:a]atrim`
+do áudio original. Provedor de imagem: o que o usuário já usa (flux2-klein via fal/Magnific conforme
+`config.yaml → imagem:`). Entra depois das Tasks 1–11; testes com gerador mockado que escreve um PNG sólido.
+
+**Task 12 — validação** ganha: (a) `status` mostra `manchete` e quais segmentos são `talking_head`;
+(b) rodar `--substituir gerado` no vídeo de exemplo e conferir que os 7 trechos com apresentador foram
+trocados e o áudio continua o original; (c) confirmar que o último segmento contém a unidade do `fecho`.
+
 ## Self-review
 
 - **Cobertura da spec:** §3 contratos → T1; §3.2 config → T1; §4.1 unidades → T4; §4.2 pontuação → T6+T7; §4.3 seleção (todas as 8 regras) + §11.5–11.7 (completar, coesão, gancho) → T8; §4.4 modo B → T10 + T9 (mix/extensão); §4.5 visual local/3b → T5 (3c "vídeo inteiro via Gemini Files API" fica **fora deste plano**, é slot futuro — anotado como YAGNI até aparecer vídeo onde a fala não basta); §5 ingest/transcrição/render → T2/T3/T9; §6 CLI → T11; §8 erros → distribuídos (retry em T3/T6, transcrição vazia em T3, seleção abaixo de 50 % e modo B sem cenas em T8, arquivo > limite: Groq aceita opus 32k de 30 min ≈ 7 MB, então o fatiamento não foi implementado — se um vídeo > 100 min aparecer, adicionar); §9 testes → todas as tasks; §11.1 reasoning low → T6; §11.4 normalização + mínimo pós-snap → T3/T8.
