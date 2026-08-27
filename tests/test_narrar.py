@@ -130,3 +130,36 @@ def test_narrar_manda_forma_fala_pro_tts_e_grava_a_de_tela(tmp_path, monkeypatch
     roteiro = (tmp_path / "roteiro.md").read_text()
     assert "DeepMind" in roteiro and "AlphaFold" in roteiro                  # tela intacta
     assert "DipMáind" not in roteiro
+
+
+def test_modo_n_usa_o_prompt_proprio_e_teto_de_freeze_maior(tmp_path, monkeypatch):
+    # o prompt do modo N proíbe inventar fato e o teto de freeze sobe pra 6s (o usuário
+    # pediu que o clipe pare e espere a fala terminar, em vez de truncar a frase).
+    import json
+    import otv.fases.narrar as N
+    fala = " ".join(["palavra"] * 40)          # ~40 palavras num segmento de 6s
+    (tmp_path / "plan.json").write_text(json.dumps({
+        "modo": "N", "alvo_s": 10, "total_s": 6.0,
+        "segmentos": [{"in": 0.0, "out": 6.0, "unidades": [0], "texto": "x", "visual": "outro"}]}))
+    (tmp_path / "unidades.json").write_text(json.dumps(
+        {"unidades": [{"id": 0, "ini": 0.0, "fim": 6.0, "dur": 6.0, "texto": "x", "visual": "outro"}]}))
+    prompts = []
+
+    class LLMFake:
+        nome = "fake"
+        def chat_json(self, prompt, imagens=None):
+            prompts.append(prompt)
+            return {"narracao": [{"k": 0, "texto": fala}]}, {"cost": 0.0}
+
+    monkeypatch.setattr(N, "criar_llm", lambda cfg, slot: LLMFake())
+    monkeypatch.setattr(N, "tts", lambda txt, wav, cfg, prov:
+                        N.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                               "anullsrc=r=48000:cl=mono", "-t", "9", str(wav)]))
+    N.narrar(tmp_path, {"pontuacao": "fake", "tts": "fake", "selecao": {"alvo_s": 120}})
+
+    assert "não invente nada" in prompts[0] or "não acrescenta fato" in prompts[0].lower()
+    # orçamento com teto de 6s: 2.5 * (6+6) = 30 palavras (com o teto de 3s seriam 22)
+    assert len((tmp_path / "roteiro.md").read_text().split("palavra")) - 1 == 30
+    # wav de 9s num segmento de 6s -> freeze de 3s... o teto de 6 deixa passar
+    plan = json.loads((tmp_path / "plan.json").read_text())
+    assert plan["segmentos"][0]["estender_s"] == 3.0

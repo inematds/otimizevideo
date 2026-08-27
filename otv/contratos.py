@@ -30,7 +30,7 @@ def validar_notas(raw, n_unidades):
     return {"topicos": topicos, "notas": notas, "gancho": gancho, "fecho": fecho, "manchete": manchete}
 
 def validar_plan(plan):
-    if plan.get("modo") not in ("A", "B", "C"):
+    if plan.get("modo") not in ("A", "B", "C", "N"):
         raise ValueError("modo inválido")
     for s in plan.get("segmentos", []):
         if not (0 <= s["in"] < s["out"]):

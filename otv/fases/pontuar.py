@@ -6,7 +6,10 @@ from otv.util.custos import registrar
 
 MODOS = {"A": "condensado com a fala original: priorize o que se entende só ouvindo.",
          "B": "sem o apresentador: a narração será refeita; priorize unidades cujo tipo de imagem é demo_tela, grafico ou slide, pois é a imagem que vai ficar.",
-         "C": "só demonstrações e gráficos: priorize demo_tela e grafico."}
+         "C": "só demonstrações e gráficos: priorize demo_tela e grafico.",
+         "N": ("narração refeita por cima do vídeo inteiro: a fala original será substituída, então "
+               "priorize o que é importante pelo CONTEÚDO, sem se importar se a frase se sustenta sozinha "
+               "no áudio — a narração vai costurar as pontas.")}
 
 def montar_lista(unidades):
     return "\n".join(f"[{u['id']:03d}] {u['dur']:.1f}s {u.get('visual', 'outro')} \"{u['texto']}\"" for u in unidades)

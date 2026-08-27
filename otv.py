@@ -23,7 +23,9 @@ def cmd_run(a, cfg):
     # chamada paga (ingest baixa vídeo, transcrever custa Groq, pontuar custa LLM) — não
     # depois de já ter gasto tudo isso pra travar só no 'selecionar'. A condição não faz
     # I/O nenhum: só olha a.modo e o slot resolvido.
-    if a.modo != "A" and not visual_e_modelo:
+    # o modo N narra por cima do vídeo inteiro: não filtra por tipo de imagem, então não
+    # depende de classificação visual (igual ao A). Só B e C dependem.
+    if a.modo in ("B", "C") and not visual_e_modelo:
         sys.exit(f"modo {a.modo} precisa de classificação visual por modelo — visual={visual!r} "
                   "não é um slot de modelo (use --visual glm, --visual gemini ou --visual claude_cli)")
     d = F_ing.ingest(a.fonte, cfg["trabalho"], forcar=a.forcar); print(f"[ingest] {d}")
@@ -36,7 +38,7 @@ def cmd_run(a, cfg):
     F_se.selecionar(d, cfg, a.modo, a.alvo); print("[selecionar] ok")
     if a.substituir == "gerado":
         F_su.substituir(d, cfg, a.imagem, forcar=a.forcar); print("[substituir] ok")
-    if a.modo == "B":
+    if a.modo in ("B", "N"):
         F_na.narrar(d, cfg, a.tts); print("[narrar] ok")
     out = F_re.render(d, cfg, rapido=a.rapido, sem_audio_original=False if a.com_cama else None); print(f"[render] {out}")
     cmd_status(a, cfg, d)
@@ -75,7 +77,7 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="pipeline completo"); r.add_argument("fonte")
     for s_ in (r,):
-        s_.add_argument("--modo", choices="ABC", default="A"); s_.add_argument("--alvo", type=float, default=None)
+        s_.add_argument("--modo", choices="ABCN", default="A"); s_.add_argument("--alvo", type=float, default=None)
         s_.add_argument("--transcricao"); s_.add_argument("--visual"); s_.add_argument("--pontuacao"); s_.add_argument("--tts")
         s_.add_argument("--rapido", action="store_true"); s_.add_argument("--sem-audio-original", action="store_true")
         # com narração o áudio original sai por padrão; --com-cama traz de volta a -18 dB
@@ -96,7 +98,7 @@ def main():
         if nome in USA_PROVEDOR: sp.add_argument("--provedor")
         if nome in USA_FORCAR: sp.add_argument("--forcar", action="store_true")
         if nome == "cenas": sp.add_argument("--classificar", action="store_true")
-        if nome in ("pontuar", "selecionar"): sp.add_argument("--modo", choices="ABC", default="A"); sp.add_argument("--alvo", type=float)
+        if nome in ("pontuar", "selecionar"): sp.add_argument("--modo", choices="ABCN", default="A"); sp.add_argument("--alvo", type=float)
         if nome == "render": sp.add_argument("--rapido", action="store_true"); sp.add_argument("--sem-audio-original", action="store_true"); sp.add_argument("--com-cama", action="store_true")
     a = p.parse_args(); cfg = carregar_config(a.config)
     if a.cmd == "run": return cmd_run(a, cfg)

@@ -284,3 +284,25 @@ esses trechos com `movie=…,zoompan` (Ken Burns lento) na mesma geometria do v�
 Provedor de imagem: `imagem: fal` no `config.yaml` (flux-2-klein via fal.ai, `FAL_KEY` lida dos
 `.env` de sempre). É o único provedor implementado — trocar é escrever outra classe com o mesmo
 método `gerar(prompt, destino)` em `otv/provedores/imagem.py`.
+
+
+## 13. Modo N — narração sobre o conteúdo inteiro
+
+O modo A mantém a fala original, e por isso os cortes deixam saltos: a pessoa muda de assunto e
+de entonação sem transição. O modo B resolve a fluência, mas descarta o apresentador e só fica
+com slide, demo e gráfico. O **modo N** é o meio-termo: mantém o vídeo inteiro na tela (como o A)
+e substitui o áudio por uma narração reescrita (como o B).
+
+```bash
+python3 otv.py run <url> --modo N
+```
+
+A narração **não é conteúdo novo**: o prompt (`prompts/narrar_n.md`) manda traduzir e dar fluência
+ao que já foi dito — tirar hesitação, ligar o salto que o corte deixou, manter número e nome
+próprio exatamente como estão — e proíbe acrescentar fato, data ou conclusão que não esteja na
+fala. O `roteiro.md` é o ponto de revisão antes do render.
+
+Diferente dos outros modos, o N **não precisa de classificação visual** (não filtra por tipo de
+imagem) e usa um teto de congelamento maior: **6 s** em vez de 3 s. Português é mais prolixo que
+inglês, então a narração costuma passar da duração do trecho — em vez de truncar a frase, o
+último quadro congela e espera a fala terminar, e o próximo trecho entra depois.

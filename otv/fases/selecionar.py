@@ -3,7 +3,10 @@ from pathlib import Path
 from otv.contratos import validar_plan
 from otv.util.custos import registrar
 
-VISUAL_MODO = {"A": None, "B": {"demo_tela", "grafico", "slide"}, "C": {"demo_tela", "grafico"}}
+# None = sem filtro de imagem (escolhe em todo o vídeo). O modo N narra por cima do
+# conteúdo inteiro, então ele filtra tão pouco quanto o A — o que muda no N é o áudio,
+# não a seleção.
+VISUAL_MODO = {"A": None, "N": None, "B": {"demo_tela", "grafico", "slide"}, "C": {"demo_tela", "grafico"}}
 
 def filtrar_modo(unidades, modo):
     permitidos = VISUAL_MODO[modo]
@@ -129,7 +132,7 @@ def selecionar(dir, cfg, modo="A", alvo_s=None, forcar=True):
     notas = json.loads((dir / "notas.json").read_text())
     cenas = json.loads((dir / "scenes.json").read_text())["cenas"] if (dir / "scenes.json").exists() else []
     alvo = alvo_s or cfg["selecao"]["alvo_s"]
-    if modo != "A" and not any(u.get("visual") in VISUAL_MODO[modo] for u in us):
+    if VISUAL_MODO[modo] and not any(u.get("visual") in VISUAL_MODO[modo] for u in us):
         raise RuntimeError(f"nenhuma unidade com visual {sorted(VISUAL_MODO[modo])} — vídeo é só talking head? use modo A ou rode 'otv cenas --classificar'")
     plan = selecionar_plan(us, notas, cenas, cfg["selecao"], modo, alvo)
     if plan["total_s"] < 0.5 * alvo:
