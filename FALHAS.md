@@ -2,6 +2,7 @@
 
 | data | o que quebrou | menor correção | prompt \| infra |
 |---|---|---|---|
+| 2026-08-27 | Task 4 (`montar_unidades`): código do brief só forçava o corte por duração se aparecesse depois uma pausa >= 150ms; fala corrida sem pontuação/pausa crescia sem teto (unidade de 30s medida no vídeo real, 25% do orçamento de 120s num bloco só) — e o teste do brief testava o caminho de `fins_segmento`, não o de duração, então o bug passou sem cobertura | corte forçado roda antes do fechamento natural, vira loop até caber, e desempate por maior pausa prefere o corte mais tardio (não o primeiro empate) — sem isso, fala com gaps de 0.000s repetidos cortava palavra a palavra e a fusão do item 3 colava tudo de volta, piorando o estouro; `max_dur_s` virou configurável (`selecao.max_unidade_s`); teste novo cobre fala contínua cruzando o teto sem pontuação/segmento | prompt |
 | 2026-08-27 | Gemini API nativa: 503 em todos os modelos 3.x (3 rodadas, 30 s entre elas); 2.5 desligados p/ contas novas | tentar mais tarde; slot `gemini_video` fica opcional, GLM via OpenRouter cobre a etiqueta visual | infra |
 | 2026-08-27 | `z-ai/glm-5.3-flash` via OpenRouter travou > 13 min pontuando 325 unidades (reasoning ilimitado; não pode ser desligado no endpoint) | mandar `reasoning: {effort: "low"}` + `max_tokens: 20000` → 64 s | infra |
 | 2026-08-27 | Groq `verbose_json` com `timestamp_granularities=[word]` devolve `segments: null` → TypeError no spike | pedir `[word, segment]` e tratar `segments or []` | infra |
