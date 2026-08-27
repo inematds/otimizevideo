@@ -307,8 +307,9 @@ Spike descartável rodou ingest → Groq → unidades → pontuação → seleç
 8. **Unidades:** 325 unidades, média 3,8 s, fronteiras em pontuação/pausa funcionaram bem —
    nenhum corte no meio de palavra ao ouvir a saída. `fins_segmento` do Whisper ajuda porque as
    `words` não trazem pontuação; pedir `timestamp_granularities=[word, segment]`.
-9. **Ollama local (`qwen3.8:27b`, think off)** funciona como slot `pontuacao: ollama` (R$0) mas
-   é lento pra 325 unidades (> 10 min com GPU a 94 %). Vale como fallback offline, não default.
+9. **Ollama local (`qwen3.8:27b`, think off)** funciona como slot `pontuacao: ollama` (R$0): 325/325
+   notas, 408 s (6,8 min) com GPU a 94 %, seleção de 20 segmentos / 131,8 s. Concordância com o GLM:
+   11 de 22 unidades (Jaccard 0,34) — menor que GLM×Gemini (0,50). Vale como fallback offline, não default.
 
 ## 12. Custo por vídeo de 25 min (defaults)
 
