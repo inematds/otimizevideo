@@ -23,10 +23,12 @@ from otv.util.ffmpeg import probe, run, thumb
 
 DUR_CLIPE = 2.6         # segundos de vídeo por bloco (o texto garrafal precisa de tempo de leitura)
 MIN_BLOCO = 2.4         # piso de duração de um bloco, mesmo com fala curta
-# Teto por bloco: a chamada inteira tem que ficar em 10–15 s (foi o que o usuário pediu).
-# Sem teto, 4 blocos com fala de 6 s cada dão 25 s de abertura — vira introdução, não chamada.
-MAX_BLOCO = 4.8
-MAX_PALAVRAS_FALA = 10
+# O aperto da duração vive no PROMPT (fala curta), nunca num teto que corta o bloco por baixo
+# do áudio. Em 2026-08-27 um teto de 4.8s sobre um wav de 6.6s fez a narração do bloco 0
+# continuar tocando enquanto a do bloco 1 já tinha começado: 1,8s de duas vozes sobrepostas.
+# MAX_BLOCO agora é só um alvo pra avisar quando a chamada estourou, não um corte.
+ALVO_BLOCO = 4.8
+MAX_PALAVRAS_FALA = 12
 FOLGA_BLOCO = 0.45      # respiro depois da fala, antes de trocar de bloco
 N_BLOCOS = 3            # capa + 2 promessas  ≈ 12–14 s
 VISUAL_BOM = ("grafico", "demo_tela", "slide")
@@ -91,11 +93,30 @@ def roteiro(plan, notas, llm, titulo, n=N_BLOCOS):
     for b in resp.get("blocos", []):
         k = int(b.get("k", -1))
         if 0 <= k < n:
-            # trunca ANTES do TTS: fala longa demais estoura o teto de duração do bloco e
-            # a chamada deixa de ser chamada (mesma lógica do orçamento de palavras do narrar)
             blocos[k] = {"titulo": str(b.get("titulo", ""))[:48].upper(),
-                         "fala": truncar_por_orcamento(str(b.get("fala", "")).strip(), MAX_PALAVRAS_FALA)}
+                         "fala": encurtar_fala(str(b.get("fala", "")).strip(), MAX_PALAVRAS_FALA)}
     return blocos, uso
+
+
+def encurtar_fala(texto, orcamento=MAX_PALAVRAS_FALA):
+    """Encurta a fala SEM nunca devolver frase pela metade.
+
+    `truncar_por_orcamento` (do narrar) corta na fronteira de palavra quando nem a primeira
+    frase cabe — o que num roteiro de vários períodos é aceitável, mas aqui cada fala é UMA
+    frase: o corte devolvia "...200 milhões de proteínas ganhou" e a narração parava no meio.
+    Aqui a regra é outra: descarta frases inteiras do fim; se sobrar só uma e ela não couber,
+    ela vai inteira mesmo assim. Bloco um pouco mais longo é melhor que frase quebrada.
+    """
+    if not texto:
+        return texto
+    sentencas = [s for s in re.split(r"(?<=[.!?])\s+", texto.strip()) if s]
+    acc, usadas = [], 0
+    for s in sentencas:
+        n = len(s.split())
+        if acc and usadas + n > orcamento:
+            break
+        acc.append(s); usadas += n
+    return " ".join(acc)
 
 
 def _esc(s):
@@ -231,8 +252,14 @@ def abertura(dir, cfg, provedor=None, forcar=False):
                  "-t", f"{MIN_BLOCO}", str(wav)])
         b["wav"] = float(run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                               "-of", "csv=p=0", str(wav)]).strip())
-        b["dur"] = round(min(MAX_BLOCO, max(MIN_BLOCO, b["wav"] + FOLGA_BLOCO)), 2)
+        # a duração do bloco SEGUE o áudio: sem isso o bloco acaba antes da fala dele e a
+        # narração invade o bloco seguinte, que já começou a falar (duas vozes ao mesmo tempo)
+        b["dur"] = round(max(MIN_BLOCO, b["wav"] + FOLGA_BLOCO), 2)
 
+    total = sum(b["dur"] for b in blocos)
+    if total > len(blocos) * ALVO_BLOCO:
+        print(f"aviso: chamada com {total:.1f}s ({len(blocos)} blocos) — acima do alvo de "
+              f"{len(blocos) * ALVO_BLOCO:.1f}s; encurte as falas em prompts/abertura.md")
     raiz = Path(__file__).resolve().parents[2]
     shutil.copy(raiz / "assets" / "gsap.min.js", ativos / "gsap.min.js")
     (ativos / "fonts").mkdir(exist_ok=True)

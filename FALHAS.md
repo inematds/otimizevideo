@@ -2,6 +2,8 @@
 
 | data | o que quebrou | menor correção | prompt \| infra |
 |---|---|---|---|
+| 2026-08-27 | Chamada: a narração do bloco 0 (wav de 6,6 s) continuava tocando enquanto a do bloco 1 já tinha começado — 1,8 s de duas vozes sobrepostas, inaudível. O teto `MAX_BLOCO=4.8` cortava o bloco por baixo do áudio | duração do bloco passa a SEGUIR o wav (`max(min, wav+folga)`, sem teto); o aperto foi pro prompt, e um aviso avisa quando a chamada estoura o alvo | prompt |
+| 2026-08-27 | Chamada: fala do bloco 1 saiu pela metade ("…200 milhões de proteínas ganhou") — `truncar_por_orcamento` cai pra fronteira de PALAVRA quando nem a primeira frase cabe, e ali cada fala é uma frase só | `encurtar_fala()` descarta frases inteiras do fim e, se sobrar uma só, manda inteira mesmo estourando o orçamento | prompt |
 | 2026-08-27 | Abertura (chamada) saiu com 25 s — o LLM escreveu falas de 18–20 palavras e cada bloco esticava até caber | teto por bloco (4,8 s) + truncar a fala em 10 palavras ANTES do TTS, mesma lógica de orçamento que o `narrar` já usava | prompt |
 | 2026-08-27 | `render()` colava o CTA com um concat de 2 entradas fixo; ao entrar a abertura viraria um terceiro parâmetro incompatível (corpo a 25 fps do fonte, cards a 30 fps do HyperFrames) | `costurar()` genérico de N partes, reencodando e normalizando fps/SAR/taxa de áudio, com erro explícito se uma parte não tiver trilha de áudio | infra |
 | 2026-08-27 | `cta: ''` no config não desligava o CTA — `Path('')` vira `.`, que existe, e o ffmpeg recebia um diretório como input | guard explícito no valor vazio antes do `exists()` | prompt |

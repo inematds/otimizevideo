@@ -14,8 +14,8 @@ Para cada bloco:
 - **`titulo`**: o texto GARRAFAL que aparece na tela. No máximo 4 palavras, em caixa alta,
   sem ponto final. É manchete de capa de revista: concreta, forte, sem adjetivo vazio.
   Nada de "INCRÍVEL", "VOCÊ PRECISA VER", "IMPERDÍVEL".
-- **`fala`**: a narração desse bloco, 1 frase CURTA, entre 6 e 10 palavras (nunca mais que 10). Ela conversa com o
-  espectador e emenda no bloco seguinte. Não repita o texto garrafal palavra por palavra.
+- **`fala`**: a narração desse bloco, 1 frase CURTA e COMPLETA, entre 6 e 9 palavras (nunca mais que 9). Tem que fazer sentido sozinha, com começo e fim — ela vai ser lida em voz alta e nada será
+  cortado depois. Conversa com o espectador e emenda no bloco seguinte. Não repita o texto garrafal palavra por palavra.
 
 Não invente fato: só prometa o que está na lista acima. Números e nomes próprios exatamente como
 aparecem lá.
