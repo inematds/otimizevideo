@@ -33,9 +33,15 @@ def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=Fals
         # fontfile= vai no FIM das opções do drawtext (a ordem não importa pro ffmpeg) pra
         # não quebrar a string exigida no requisito: "drawtext=text='...'" logo após o "=".
         fontfile = f":fontfile={FONTE_MANCHETE}" if Path(FONTE_MANCHETE).exists() else ""
+        # expansion=none: sem isso o drawtext roda com expansion=normal (o default) e
+        # interpreta "%{...}" — um "%" solto (ex.: "100% de certeza", plausível numa
+        # manchete em PT-BR vinda de LLM) gera só um WARNING ("Stray %"), não erro. Como
+        # render() chama o ffmpeg com "-v error", esse warning é engolido: o processo sai
+        # com código 0 e o output.mp4 fica sem manchete nenhuma, sem qualquer sinal de
+        # falha. expansion=none elimina a classe inteira do problema (dispensa escapar %).
         fc.append(f"[vc]drawbox=y=0:h=ih*0.16:color=black@0.55:t=fill:enable='lt(t,4)',"
                   f"drawtext=text='{texto}':fontcolor=white:fontsize=h*0.055:x=(w-text_w)/2:y=h*0.05:"
-                  f"alpha='if(lt(t,0.5),t*2,if(lt(t,3.5),1,(4-t)*2))':enable='lt(t,4)'{fontfile}[v]")
+                  f"alpha='if(lt(t,0.5),t*2,if(lt(t,3.5),1,(4-t)*2))':enable='lt(t,4)':expansion=none{fontfile}[v]")
     else:
         fc.append("[vc]null[v]")
     return ";".join(fc)
@@ -63,7 +69,22 @@ def render(dir, cfg, rapido=False, sem_audio_original=False):
         lista.write_text("".join(f"file 'video.mp4'\ninpoint {s['in']}\noutpoint {s['out']}\n" for s in segs))
         run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lista), "-c", "copy", str(out)])
     else:
-        narr = plan.get("narracao"); wavs = [dir / w for w in narr["arquivos"]] if narr else None
+        narr = plan.get("narracao")
+        if narr:
+            arqs = narr["arquivos"]
+            if len(arqs) != len(segs) or any(a is None for a in arqs):
+                # Mantém a falha explícita em vez de pular o None: pular desalinharia todos
+                # os índices [k+1:a] seguintes em montar_filtro, silenciosamente. A Task 10
+                # é quem gera plan["narracao"]["arquivos"] e tem que entregar um wav por
+                # segmento (silencioso quando o segmento não tem narração), nunca null.
+                raise RuntimeError(
+                    "plan['narracao']['arquivos'] precisa ter um wav por segmento (silencioso "
+                    f"quando o segmento não tem narração), nunca null — recebi {len(arqs)} "
+                    f"entrada(s) para {len(segs)} segmento(s) (Task 10 gera esse arquivo)"
+                )
+            wavs = [dir / w for w in arqs]
+        else:
+            wavs = None
         cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(dir / "video.mp4")]
         for w in (wavs or []):
             cmd += ["-i", str(w)]

@@ -1,6 +1,30 @@
-import json
+import json, shutil
+import pytest
 from otv.fases.render import montar_filtro, render
-from otv.util.ffmpeg import probe
+from otv.util.ffmpeg import probe, thumb
+
+
+def _preparar(tmp_path, video_teste, id_, plan):
+    """Setup comum aos testes de render real: copia o vídeo da fixture, escreve
+    metadata.json e plan.json. Retorna tmp_path (mesma pasta que os testes já usavam)."""
+    shutil.copy(video_teste, tmp_path / "video.mp4")
+    (tmp_path / "metadata.json").write_text(json.dumps({"id": id_}))
+    (tmp_path / "plan.json").write_text(json.dumps(plan))
+    return tmp_path
+
+
+def _pixels_glifo(video, t, tmp_path, tag=""):
+    """Conta pixels quase-brancos (>200 em escala de cinza) na faixa dos 16% superiores
+    do quadro em t. Usado pra confirmar que o TEXTO da manchete realmente apareceu — o
+    drawbox sozinho escurece a faixa mesmo com o texto em branco (bug do '%'), então
+    contar glifo é o critério certo, não só brilho médio da faixa."""
+    from PIL import Image
+    frame = tmp_path / f"frame_{tag}_{t}.png"
+    thumb(video, t, frame)
+    img = Image.open(frame).convert("L")
+    w, h = img.size
+    faixa = img.crop((0, 0, w, int(h * 0.16)))
+    return sum(1 for p in faixa.getdata() if p > 200)
 
 
 def test_montar_filtro_dois_segmentos():
@@ -23,11 +47,8 @@ def test_montar_filtro_estende_com_freeze():
 
 
 def test_render_duracao_bate(video_teste, tmp_path):
-    import shutil
-    shutil.copy(video_teste, tmp_path / "video.mp4")
-    (tmp_path / "metadata.json").write_text(json.dumps({"id": "t"}))
-    (tmp_path / "plan.json").write_text(json.dumps({"modo": "A", "alvo_s": 3, "total_s": 3.0, "narracao": None,
-        "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0}, {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]}))
+    _preparar(tmp_path, video_teste, "t", {"modo": "A", "alvo_s": 3, "total_s": 3.0, "narracao": None,
+        "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0}, {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]})
     out = render(tmp_path, {"saida": str(tmp_path / "saida")})
     assert abs(probe(out)["duracao_s"] - 3.0) < 0.15
     assert (tmp_path / "saida" / "t" / "output.mp4").exists()
@@ -38,7 +59,7 @@ def test_render_duracao_bate(video_teste, tmp_path):
 def test_montar_filtro_manchete_escapa_dois_pontos():
     f = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0}], manchete="A:B")
     # requisito, verbatim: dois-pontos escapado logo após "drawtext=text='...'"
-    # (fontfile=, quando presente, vai no fim das opções do drawtext, não aqui na frente)
+    # (fontfile= e expansion=none, quando presentes, vão no fim das opções do drawtext)
     assert "drawtext=text='A\\:B'" in f
     # sem manchete, o caminho continua sendo o null simples
     sem = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0}])
@@ -52,6 +73,18 @@ def test_montar_filtro_manchete_caracteres_perigosos_string():
     assert "A\\:B’s \\\\ fim" in f
 
 
+def test_montar_filtro_manchete_tem_expansion_none():
+    # Achado 1 da rodada de correção 1: sem expansion=none, "%" solto (ex.: "100% de
+    # desconto") vira "%{...}" pro drawtext (expansion=normal é o default) — gera um
+    # WARNING silencioso ("Stray %"), não erro, e o texto some do vídeo sem sinal de
+    # falha nenhum (run() só olha returncode, que continua 0). expansion=none elimina
+    # essa classe de bug inteira em vez de tentar escapar cada '%' (testado à parte que
+    # nem "%%" resolve tudo).
+    f = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0}], manchete="100% de certeza")
+    assert ":expansion=none" in f
+    assert "100% de certeza" in f  # não escapamos o '%' -- expansion=none dispensa isso
+
+
 def test_montar_filtro_sem_audio_original_muda_de_verdade():
     # bug real: "volume=0dB" é ganho unitário (não muda nada); "volume=0" (fator linear
     # zero) é que silencia. sem_audio_original=True tem que emitir o segundo, não o primeiro.
@@ -63,44 +96,77 @@ def test_montar_filtro_sem_audio_original_muda_de_verdade():
 
 
 def test_render_manchete_renderiza_de_verdade(video_teste, tmp_path):
-    import shutil
-    from PIL import Image
-
-    shutil.copy(video_teste, tmp_path / "video.mp4")
-    (tmp_path / "metadata.json").write_text(json.dumps({"id": "manchete"}))
     # total 5.5s (> os 4s da tarja) pra dar pra comparar um instante com tarja ativa (t=1)
     # e outro já sem ela (t=5), dentro da fixture video_teste de 6s.
-    (tmp_path / "plan.json").write_text(json.dumps({
+    _preparar(tmp_path, video_teste, "manchete", {
         "modo": "A", "alvo_s": 5.5, "total_s": 5.5, "narracao": None, "manchete": "A grande tese do vídeo",
         "segmentos": [{"in": 0.0, "out": 3.0, "unidades": [0], "estender_s": 0},
-                      {"in": 3.0, "out": 5.5, "unidades": [1], "estender_s": 0}]}))
+                      {"in": 3.0, "out": 5.5, "unidades": [1], "estender_s": 0}]})
     out = render(tmp_path, {"saida": str(tmp_path / "saida")})
     assert abs(probe(out)["duracao_s"] - 5.5) < 0.15
 
-    def brilho_topo(t):
-        frame = tmp_path / f"frame_{t}.png"
-        from otv.util.ffmpeg import thumb
-        thumb(out, t, frame)
-        img = Image.open(frame).convert("L")
-        w, h = img.size
-        faixa = img.crop((0, 0, w, int(h * 0.16)))
-        return sum(faixa.getdata()) / (faixa.size[0] * faixa.size[1])
+    # Achado 2 da rodada de correção 1: brilho médio da faixa não detecta manchete em
+    # branco, porque o drawbox continua desenhando (escurecendo o topo) mesmo sem
+    # nenhum glifo. O critério certo é contar pixels quase-brancos (o texto em si), e
+    # afirmar que há uma quantidade significativa deles -- não comparar com t=5, porque
+    # o fundo sintético (testsrc) já tem barras claras sem tarja nenhuma, o que tornaria
+    # essa comparação um falso positivo/negativo dependendo do padrão de fundo.
+    glifo_com_tarja = _pixels_glifo(out, 1.0, tmp_path, "com")   # dentro dos 4s, texto tem que aparecer
+    assert glifo_com_tarja > 200, f"poucos pixels de glifo em t=1 (tarja ativa): {glifo_com_tarja}"
+    print(f"GLIFO_PIXELS t=1(com manchete): {glifo_com_tarja}")
 
-    b1 = brilho_topo(1.0)  # dentro dos 4s da tarja
-    b5 = brilho_topo(5.0)  # fora (tarja já sumiu bem antes)
-    assert abs(b1 - b5) > 10, f"brilho do topo não mudou o suficiente: t=1 -> {b1}, t=5 -> {b5}"
-    print(f"BRILHO_TOPO t=1: {b1:.2f}  t=5: {b5:.2f}")
+
+def test_render_manchete_com_porcentagem_nao_apaga_o_texto(video_teste, tmp_path):
+    # Regressão do Achado 1: manchete plausível em PT-BR vinda de LLM ("50% de desconto",
+    # "aumentou 30%") não pode sumir silenciosamente. Confirma que o glifo aparece de
+    # verdade (não só que o ffmpeg não falhou).
+    _preparar(tmp_path, video_teste, "percentual", {
+        "modo": "A", "alvo_s": 3, "total_s": 3.0, "narracao": None,
+        "manchete": "100% de certeza de verdade",
+        "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0},
+                      {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]})
+    out = render(tmp_path, {"saida": str(tmp_path / "saida")})
+    glifo = _pixels_glifo(out, 1.0, tmp_path, "pct")
+    assert glifo > 200, f"manchete com '%' sumiu (bug do Stray % voltou): pixels de glifo = {glifo}"
+    print(f"GLIFO_PIXELS_COM_PERCENTUAL t=1: {glifo}")
 
 
 def test_render_manchete_caracteres_perigosos_render_de_verdade(video_teste, tmp_path):
-    import shutil
-    shutil.copy(video_teste, tmp_path / "video.mp4")
-    (tmp_path / "metadata.json").write_text(json.dumps({"id": "perigo"}))
-    (tmp_path / "plan.json").write_text(json.dumps({
+    _preparar(tmp_path, video_teste, "perigo", {
         "modo": "A", "alvo_s": 3, "total_s": 3.0, "narracao": None,
         "manchete": "Título: 'assim' e \\barra",
         "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0},
-                      {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]}))
+                      {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]})
     out = render(tmp_path, {"saida": str(tmp_path / "saida")})
     assert out.exists()
     assert abs(probe(out)["duracao_s"] - 3.0) < 0.15
+
+
+# --- Achados 4 e 5 da rodada de correção 1 --------------------------------
+
+def test_render_narracao_com_null_falha_com_mensagem_clara(video_teste, tmp_path):
+    # Achado 4: pular o None desalinharia todos os índices [k+1:a] seguintes,
+    # silenciosamente -- falhar rápido e alto é o comportamento certo. O que faltava era
+    # uma mensagem clara (a Task 10 é quem gera esse arquivo, tem que ser 1 wav/segmento).
+    _preparar(tmp_path, video_teste, "narr-null", {
+        "modo": "A", "alvo_s": 3, "total_s": 3.0,
+        "narracao": {"arquivos": ["seg_00.wav", None]},
+        "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0},
+                      {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]})
+    with pytest.raises(RuntimeError, match="nunca null"):
+        render(tmp_path, {"saida": str(tmp_path / "saida")})
+
+
+def test_render_rapido_produz_mp4_legivel(video_teste, tmp_path):
+    # Achado 5: --rapido (concat demuxer + -c copy) sem cobertura nenhuma. Smoke test
+    # barato -- NÃO afirma duração exata: esse caminho corta em keyframe e é aproximado
+    # de propósito (pode variar por até um GOP inteiro), afirmar duração exata criaria
+    # um teste frágil.
+    _preparar(tmp_path, video_teste, "rapido", {
+        "modo": "A", "alvo_s": 3, "total_s": 3.0, "narracao": None,
+        "segmentos": [{"in": 0.5, "out": 2.0, "unidades": [0], "estender_s": 0},
+                      {"in": 3.0, "out": 4.5, "unidades": [1], "estender_s": 0}]})
+    out = render(tmp_path, {"saida": str(tmp_path / "saida")}, rapido=True)
+    assert out.exists()
+    d = probe(out)["duracao_s"]
+    assert d > 0
