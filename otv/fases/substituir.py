@@ -10,7 +10,13 @@ from pathlib import Path
 from otv.provedores.imagem import criar_imagem
 from otv.util.custos import registrar
 
-SUFIXO_PROMPT = "editorial illustration, dark, no text"
+# "no text/no words/no letters": o flux escreve letreiro garrancho se deixar. "no person
+# speaking to camera": a primeira rodada (2026-08-27) montava o prompt a partir da DESCRIÇÃO
+# da cena -- que descreve justamente o apresentador -- e gerava outro apresentador, ou seja,
+# substituía talking head por talking head. O assunto tem que vir do que está sendo DITO.
+SUFIXO_PROMPT = ("editorial illustration, dark, cinematic, no text, no words, no letters, "
+                 "no person speaking to camera")
+MAX_TEXTO = 240
 
 
 def _cena_de(cenas, t):
@@ -27,8 +33,15 @@ def _topico_de(notas, unidades_ids):
     return ""
 
 
-def montar_prompt(descricao, topico):
-    partes = [p.strip() for p in (descricao, topico) if p and str(p).strip()]
+def montar_prompt(texto, topico, descricao=None):
+    """Prompt da ilustração: o ASSUNTO vem da fala do segmento (`texto`) e do tópico.
+
+    A `descricao` da cena entra só como último recurso (segmento sem texto): num trecho
+    talking_head ela descreve o apresentador, e usar isso como prompt gera outro
+    apresentador -- exatamente o que o modo A+ existe para eliminar.
+    """
+    assunto = (texto or "").strip()[:MAX_TEXTO] or (descricao or "").strip()
+    partes = [p for p in (assunto, (topico or "").strip()) if p]
     return ", ".join(partes + [SUFIXO_PROMPT])
 
 
@@ -52,7 +65,8 @@ def substituir(dir, cfg, provedor=None, gerador=None, forcar=False):
         rel = f"subst/seg_{k:02d}.png"; png = dir / rel
         if forcar or not png.exists():
             cena = _cena_de(cenas, (s["in"] + s["out"]) / 2) or {}
-            gerador.gerar(montar_prompt(cena.get("descricao"), _topico_de(notas, s.get("unidades", []))), png)
+            gerador.gerar(montar_prompt(s.get("texto"), _topico_de(notas, s.get("unidades", [])),
+                                        cena.get("descricao")), png)
             gerados += 1
         s["substituir"] = rel
     (dir / "plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=1))

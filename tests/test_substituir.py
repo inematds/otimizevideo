@@ -27,16 +27,25 @@ def _pasta(tmp_path, segmentos, cenas=None, notas=None):
     return tmp_path
 
 
-def test_montar_prompt_junta_descricao_topico_e_sufixo():
-    p = montar_prompt("homem falando na frente de uma estante", "envelhecimento")
-    assert p == "homem falando na frente de uma estante, envelhecimento, editorial illustration, dark, no text"
+def test_montar_prompt_usa_a_fala_e_nao_a_descricao_do_apresentador():
+    # a descrição da cena, num trecho talking_head, descreve o apresentador -- usá-la como
+    # prompt gerava outro apresentador (falha real de 2026-08-27, primeira rodada da 10b)
+    p = montar_prompt("ratos cegos voltaram a enxergar depois de três genes",
+                      "envelhecimento", descricao="homem de terno falando para a câmera")
+    assert p.startswith("ratos cegos voltaram a enxergar depois de três genes, envelhecimento")
+    assert "homem de terno" not in p
+    assert "no text" in p and "no person speaking to camera" in p
+
+
+def test_montar_prompt_cai_na_descricao_so_sem_texto():
+    assert montar_prompt("", "", descricao="gráfico de barras subindo").startswith("gráfico de barras subindo,")
     # campos vazios não deixam vírgula solta
-    assert montar_prompt(None, "") == "editorial illustration, dark, no text"
+    assert montar_prompt(None, "").startswith("editorial illustration")
 
 
 def test_substituir_gera_so_os_talking_head_e_anota_no_plan(tmp_path):
     d = _pasta(tmp_path,
-               [{"in": 0.0, "out": 4.0, "unidades": [0], "visual": "talking_head"},
+               [{"in": 0.0, "out": 4.0, "unidades": [0], "visual": "talking_head", "texto": "a fala do gancho"},
                 {"in": 10.0, "out": 14.0, "unidades": [5], "visual": "grafico"},
                 {"in": 20.0, "out": 24.0, "unidades": [9], "visual": "talking_head"}],
                cenas=[{"ini": 0.0, "fim": 30.0, "descricao": "apresentador no estúdio"}],
@@ -49,7 +58,8 @@ def test_substituir_gera_so_os_talking_head_e_anota_no_plan(tmp_path):
     assert plan["segmentos"][2]["substituir"] == "subst/seg_02.png"
     assert (d / "subst" / "seg_00.png").exists() and (d / "subst" / "seg_02.png").exists()
     assert len(g.prompts) == 2
-    assert "apresentador no estúdio" in g.prompts[0] and "imortalidade" in g.prompts[0]
+    assert "a fala do gancho" in g.prompts[0] and "imortalidade" in g.prompts[0]
+    assert "apresentador no estúdio" not in g.prompts[0]
 
 
 def test_substituir_e_idempotente_nao_regera_png_existente(tmp_path):
