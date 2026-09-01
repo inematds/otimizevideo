@@ -75,6 +75,10 @@ fica em `trabalho/<id>/` (pasta de trabalho intermediária).
 | **B** | **Sem** o apresentador — corta pra tela/gráfico/slide e **regrava a narração** (TTS) por cima | Quando o rosto/olho no vídeo original não importa e você quer um corte mais "editorial" | Classificação visual por modelo (as cenas precisam estar marcadas como `demo_tela`, `slide` ou `grafico` — a detecção local só distingue "tem rosto" de "não tem") |
 | **C** | Só **demonstrações e gráficos** — o modo mais restrito | Vídeo é majoritariamente demo/gráfico e você quer só isso, sem qualquer talking head | Mesma exigência do modo B |
 
+Há ainda dois modos derivados, documentados no fim deste README: **A+** (mantém a fala
+original mas troca o vídeo do apresentador por ilustração gerada — seção 13) e **N** (mantém
+o vídeo inteiro na tela e regrava só o áudio como narração — seção 14).
+
 **B e C dependem de classificação visual por modelo.** A detecção local (`visual: local`) só
 sabe dizer "tem rosto grande" (`talking_head`) ou "não" (`outro`) — ela nunca produz
 `demo_tela`, `slide` ou `grafico`. Sem passar `--visual glm`, `--visual gemini` ou
@@ -207,19 +211,61 @@ python3 otv.py render <id>
 **apaga a edição em silêncio**. Depois de editar o plano, o comando certo é `otv render <id>`
 isolado (acima), nunca `otv run` de novo.
 
-## 10. Custo típico
+## 10. Consumo de LLM e custo real
 
-Para um vídeo de ~25 min, com os defaults (`transcricao: groq`, `visual: local` no modo A,
-`pontuacao: glm`, `tts: inemavox`):
+O pipeline chama LLM em **quatro pontos**, e só um deles roda no caminho padrão (modo A):
 
-| Fase | Custo |
-|---|---|
-| Transcrição (Groq) | ~US$0,02 (Groq não reporta custo em `$`; estimativa ~US$0,04/hora de áudio) |
-| Cenas + detecção de rosto (local) | R$0 |
-| Classificação visual por modelo (só modo B/C) | ~US$0,004 |
-| Pontuação (1 chamada) | ~US$0,002 |
-| Seleção / render / TTS local | R$0 |
-| **Total (modo A)** | **≈ US$0,03** — e re-cortes/re-render depois são R$0 |
+| Fase | Chamadas por vídeo de ~25 min | O que manda pro modelo | Quando roda |
+|---|---|---|---|
+| `pontuar` | **1** | a transcrição inteira fatiada em unidades numeradas (texto puro) | sempre |
+| `cenas --classificar` | **1 por lote de 20 thumbnails** (`otv/fases/cenas.py`) — ~378 cenas ≈ **19 chamadas**, multimodal, imagens em base64 | as thumbs das cenas | só modos **B/C** (e `--visual glm/gemini/claude_cli`) |
+| `narrar` | **1** | o texto do plano, pra reescrever pra locução | modos **B/C/N** |
+| `abertura` | **1** | título + manchete + lista curta de cenas | quando a abertura é montada |
+
+### Números medidos (não estimados)
+
+Vídeo real de ~25 min (`trabalho/dQYKcjvXhIY/custos.json`), slot `glm` =
+`z-ai/glm-5.3-flash` via OpenRouter:
+
+| Fase | prompt tokens | completion tokens | Custo | Tempo |
+|---|---|---|---|---|
+| `pontuar` | 8.933 | 6.475 | **US$0,0046** | 85 s |
+| `classificar` | 83.001 | 10.047 | **US$0,0099** | 195 s |
+| `narrar` | 2.116 | 740 | **US$0,0007** | 303 s |
+| `abertura` | 784 | 116 | **US$0,0002** | 101 s |
+| **Total de LLM (pipeline inteiro)** | | | **US$0,0154** | |
+
+**A classificação visual é 90% do consumo de tokens** — são imagens em base64, ~4,4k tokens
+por lote de 20 thumbs. É o único ponto multimodal do projeto, e é exatamente o que o modo A
+não usa.
+
+### Custo por modo
+
+| Modo | LLM que roda | Custo de LLM | Total com transcrição |
+|---|---|---|---|
+| **A** (default, `visual: local`) | só `pontuar` (+ `abertura`) | **~US$0,005** | **≈ US$0,025** |
+| **N** | `pontuar` + `narrar` (+ `abertura`) | ~US$0,006 | ≈ US$0,026 |
+| **B / C** | `pontuar` + `classificar` + `narrar` (+ `abertura`) | ~US$0,015 | ≈ US$0,035 |
+
+A transcrição no Groq entra com ~US$0,02 em todos eles (o Groq não reporta custo em `$`;
+estimativa de ~US$0,04 por hora de áudio). Cenas, detecção de rosto, seleção, render e TTS
+local são R$0.
+
+### O que zera ou reduz
+
+- **Re-cortes e re-renders são R$0.** `selecionar`, `render` e `narrar` (o TTS em si) não
+  chamam LLM pago; `pontuar` e `cenas` gravam o artefato e não repetem sem `--forcar`
+  (seção 8).
+- `--pontuacao ollama` ou `--visual ollama` tira o custo em `$` (roda local em
+  `qwen3.8:27b`, precisa do daemon).
+- `--pontuacao claude_cli` / `--visual claude_cli` sai da **assinatura** do Claude Code, sem
+  API key — o custo é registrado como `0.0` no `custos.json`.
+
+### Atenção: retry pode dobrar o consumo
+
+Cada chamada tem **2 tentativas** se a resposta não vier em JSON válido (`chat_json` em
+`otv/provedores/llm.py`) e até **3 tentativas** no HTTP para erros 5xx/429. Na pior hipótese
+uma fase consome o dobro do que a tabela acima mostra.
 
 Veja o gasto real de uma pasta já processada com:
 
@@ -263,7 +309,7 @@ Casos reais já encontrados neste projeto (changelog completo em `FALHAS.md`):
 - Changelog de falhas: [`FALHAS.md`](FALHAS.md)
 
 
-## 12. Modo A+ — substituir o apresentador por ilustração
+## 13. Modo A+ — substituir o apresentador por ilustração
 
 `--substituir gerado` (no `run`) ou a fase `otv substituir <id>` gera uma ilustração 16:9 por
 segmento marcado como `talking_head` e troca **só o vídeo** desses trechos: o áudio continua
@@ -286,7 +332,7 @@ Provedor de imagem: `imagem: fal` no `config.yaml` (flux-2-klein via fal.ai, `FA
 método `gerar(prompt, destino)` em `otv/provedores/imagem.py`.
 
 
-## 13. Modo N — narração sobre o conteúdo inteiro
+## 14. Modo N — narração sobre o conteúdo inteiro
 
 O modo A mantém a fala original, e por isso os cortes deixam saltos: a pessoa muda de assunto e
 de entonação sem transição. O modo B resolve a fluência, mas descarta o apresentador e só fica
@@ -306,3 +352,42 @@ Diferente dos outros modos, o N **não precisa de classificação visual** (não
 imagem) e usa um teto de congelamento maior: **6 s** em vez de 3 s. Português é mais prolixo que
 inglês, então a narração costuma passar da duração do trecho — em vez de truncar a frase, o
 último quadro congela e espera a fala terminar, e o próximo trecho entra depois.
+
+## 15. Rodar sem Claude Code e sem Codex (VPS headless)
+
+**Sim — o pipeline inteiro roda numa VPS sem nenhum agente de código instalado.** O `otv` é
+um CLI Python normal; `claude_cli` é só *um dos provedores opcionais* dos slots `visual` e
+`pontuacao`, nunca uma dependência. Codex não é usado em lugar nenhum do projeto.
+
+O que a VPS precisa de verdade:
+
+| Item | Obrigatório? | Observação |
+|---|---|---|
+| Python 3 + `requirements.txt` | sim | `requests`, `pyyaml`, `yt-dlp`, `scenedetect`, `opencv-python`, `mediapipe` |
+| `ffmpeg` / `ffprobe` no `PATH` | sim | corte, thumbs, mux |
+| `yt-dlp` | só se a fonte for URL | arquivo local dispensa |
+| `GROQ_API_KEY` | sim (default de transcrição) | ou trocar por `whisper_local`/`whisperx` |
+| `OPENROUTER_API_KEY` | sim (default de pontuação) | ou trocar por `ollama` |
+| GPU | **não** | `visual: local` (mediapipe) e a detecção de cena rodam em CPU |
+| daemon `inemavox` (:8010) | só modos B/C/N | TTS — sem ele, use `--tts elevenlabs` |
+| daemon Ollama (:11434) | só se escolher `ollama` | |
+| binário `claude` | **não** | só se escolher `--pontuacao claude_cli` / `--visual claude_cli` |
+
+Config mínima 100% cloud, sem daemon nenhum e sem GPU:
+
+```yaml
+transcricao: groq
+visual: local        # modo A; para B/C use glm (também cloud)
+pontuacao: glm
+tts: elevenlabs      # evita depender do inemavox local
+```
+
+Duas ressalvas de VPS pequena:
+
+- **`opencv-python` + `mediapipe` puxam bibliotecas de sistema.** Em imagem slim/headless,
+  instale `libgl1` e `libglib2.0-0`, ou troque por `opencv-python-headless`.
+- **A detecção de cena é CPU-bound**: 130 s para um vídeo de 25 min na máquina de referência.
+  Numa VPS de 1 vCPU conte com bem mais, mas ela roda uma vez só e é idempotente.
+
+As keys continuam sendo lidas em runtime dos `.env` (`otv/util/keys.py`) — numa VPS, ou você
+replica esses caminhos, ou aponta o `keys.py` para o `.env` da máquina.
