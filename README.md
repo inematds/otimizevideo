@@ -48,12 +48,21 @@ dependências pesadas (`openai-whisper`, `whisperx`, `torch`) que **não** estã
 
 ### Keys
 
-`otv` nunca lê nem escreve chave de API em `config.yaml` ou em qualquer arquivo deste
-projeto. As keys são lidas em **runtime** de `~/projetos/openpcbotv2/.env` ou
-`~/projetos/wifi/.env` (primeiro arquivo que tiver a variável, nessa ordem — ver
-`otv/util/keys.py`). Configure lá `GROQ_API_KEY`, `OPENROUTER_API_KEY` e, se for usar
-ElevenLabs, `ELEVENLABS_API_KEY`/`ELEVENLABS_VOICE_ID`. Nenhuma key é impressa, logada ou
-gravada em disco por este projeto.
+`otv` nunca escreve chave de API em `config.yaml` nem em qualquer arquivo deste projeto —
+elas são lidas em **runtime** (`otv/util/keys.py`), na primeira fonte que tiver a variável:
+
+1. **variável de ambiente** — `GROQ_API_KEY=... python3 otv.py run ...`, systemd, Docker
+2. o arquivo apontado por **`OTV_ENV_FILE`**, se definido
+3. **`.env` na raiz do projeto** (está no `.gitignore`)
+4. **`~/.config/otv/.env`**
+5. os `.env` da máquina de origem — `~/projetos/openpcbotv2/.env`, `~/projetos/wifi/.env`
+
+As opções 1–4 tornam o projeto portável para outra máquina ou VPS sem editar código
+(seção 15). Linhas com `#` são ignoradas e `export NOME=valor` é aceito.
+
+Configure `GROQ_API_KEY`, `OPENROUTER_API_KEY` e, se for usar ElevenLabs,
+`ELEVENLABS_API_KEY`/`ELEVENLABS_VOICE_ID` (mais `FAL_KEY` para o modo A+). Nenhuma key é
+impressa, logada ou gravada em disco por este projeto.
 
 ## 3. Uso rápido
 
@@ -389,5 +398,14 @@ Duas ressalvas de VPS pequena:
 - **A detecção de cena é CPU-bound**: 130 s para um vídeo de 25 min na máquina de referência.
   Numa VPS de 1 vCPU conte com bem mais, mas ela roda uma vez só e é idempotente.
 
-As keys continuam sendo lidas em runtime dos `.env` (`otv/util/keys.py`) — numa VPS, ou você
-replica esses caminhos, ou aponta o `keys.py` para o `.env` da máquina.
+**As keys não exigem os caminhos da máquina de origem.** Na VPS, use qualquer uma das
+fontes portáveis (seção 2 → *Keys*): variáveis de ambiente no systemd/Docker, um `.env` na
+raiz do projeto, `~/.config/otv/.env`, ou `OTV_ENV_FILE` apontando pra onde você quiser.
+
+```bash
+# opção 1: ambiente (nada em disco)
+GROQ_API_KEY=... OPENROUTER_API_KEY=... python3 otv.py run <url> --modo A
+
+# opção 2: .env na raiz do projeto (ignorado pelo git)
+printf 'GROQ_API_KEY=...\nOPENROUTER_API_KEY=...\n' > .env
+```
