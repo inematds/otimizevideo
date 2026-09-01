@@ -166,3 +166,34 @@ def test_rota_rodar_repassa_substituir(srv, monkeypatch):
     urllib.request.urlopen(req, timeout=5)
     assert capturado["cmd"][-2:] == ["--substituir", "gerado"]
     assert "--visual" in capturado["cmd"]
+
+
+def test_rota_plano_edita_e_faz_backup(srv, trab):
+    corpo = json.dumps({"id": "vid1", "manchete": "editada na tela",
+                        "segmentos": [{"i": 0, "in": 2.0, "out": 8.0, "incluir": True}]}).encode()
+    req = urllib.request.Request(srv + "/api/plano", data=corpo,
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    r = json.load(urllib.request.urlopen(req, timeout=5))
+    assert r["ok"] and r["segmentos"] == 1 and r["total_s"] == 6.0
+    plano = json.loads((trab / "vid1" / "plan.json").read_text())
+    assert plano["manchete"] == "editada na tela" and plano["segmentos"][0]["in"] == 2.0
+    assert (trab / "vid1" / "plan.bak.json").exists()
+
+
+def test_rota_plano_recusa_edicao_invalida(srv):
+    corpo = json.dumps({"id": "vid1",
+                        "segmentos": [{"i": 0, "in": 9.0, "out": 1.0, "incluir": True}]}).encode()
+    req = urllib.request.Request(srv + "/api/plano", data=corpo,
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(req, timeout=5)
+    assert e.value.code == 400
+
+
+def test_rota_plano_rodada_inexistente(srv):
+    corpo = json.dumps({"id": "nao-existe", "manchete": "x"}).encode()
+    req = urllib.request.Request(srv + "/api/plano", data=corpo,
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(req, timeout=5)
+    assert e.value.code == 404

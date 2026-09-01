@@ -1,15 +1,12 @@
-import json, shutil, time
+import json, shutil, tempfile, time
 from pathlib import Path
 from otv.util.ffmpeg import probe, run
 from otv.util.custos import registrar
+from otv.util.texto import desenhar
 
-# Fonte usada pela manchete (drawtext). Passamos `fontfile=` explicitamente sempre que ela
-# existir neste sistema, em vez de confiar no fontconfig padrão do ffmpeg: em ambientes sem
-# fonte "default" configurada (containers mínimos, outra máquina) um drawtext sem fontfile=
-# falha em runtime — e isso não aparece num teste que só confere a string do filtro. Já
-# confirmado nesta máquina que a DejaVu Sans está aqui; se um dia não estiver, cai pra sem
-# fontfile= (deixa o ffmpeg tentar resolver via fontconfig) em vez de quebrar a montagem do filtro.
-FONTE_MANCHETE = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+# A manchete e a cartela NÃO usam drawtext: o drawtext do ffmpeg 6.1.1 trunca o texto pelo
+# número de bytes, comendo uma letra do fim por caractere acentuado (medição e detalhes em
+# otv/util/texto.py). O texto é rasterizado com PIL e entra no filtro como imagem.
 
 
 def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=True, manchete=None,
@@ -80,19 +77,27 @@ def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=True
     fc.append(f"[ac]loudnorm=I=-16:TP=-1.5{af}[a]")
     vfade = f",fade=t=out:st={max(0.0, total - fade_s):.3f}:d={fade_s}" if fade_s > 0 else ""
     if manchete:
-        texto = manchete.replace("\\", "\\\\").replace(":", "\\:").replace("'", "’")
-        # fontfile= vai no FIM das opções do drawtext (a ordem não importa pro ffmpeg) pra
-        # não quebrar a string exigida no requisito: "drawtext=text='...'" logo após o "=".
-        fontfile = f":fontfile={FONTE_MANCHETE}" if Path(FONTE_MANCHETE).exists() else ""
-        # expansion=none: sem isso o drawtext roda com expansion=normal (o default) e
-        # interpreta "%{...}" — um "%" solto (ex.: "100% de certeza", plausível numa
-        # manchete em PT-BR vinda de LLM) gera só um WARNING ("Stray %"), não erro. Como
-        # render() chama o ffmpeg com "-v error", esse warning é engolido: o processo sai
-        # com código 0 e o output.mp4 fica sem manchete nenhuma, sem qualquer sinal de
-        # falha. expansion=none elimina a classe inteira do problema (dispensa escapar %).
-        fc.append(f"[vc]drawbox=y=0:h=ih*0.16:color=black@0.55:t=fill:enable='lt(t,4)',"
-                  f"drawtext=text='{texto}':fontcolor=white:fontsize=h*0.055:x=(w-text_w)/2:y=h*0.05:"
-                  f"alpha='if(lt(t,0.5),t*2,if(lt(t,3.5),1,(4-t)*2))':enable='lt(t,4)':expansion=none{fontfile}{vfade}[v]")
+        # O texto vai como IMAGEM (PIL), não como drawtext: o drawtext do ffmpeg 6.1.1
+        # trunca por bytes e come uma letra do fim por caractere acentuado — a manchete
+        # "IA e bilionários estão tentando vencer o envelhecimento" saiu no vídeo de
+        # 2026-09-01 como "...envelhecimen". Ver otv/util/texto.py para a medição.
+        base = Path(dir) if dir else Path(tempfile.gettempdir())
+        png, alt = desenhar(manchete, base / "manchete.png", W, tamanho_px=int(H * 0.055),
+                            margem_pct=0.06)
+        # movie= em vez de um -i extra: acrescentar input aqui deslocaria os índices [k:a]
+        # da narração, que render() monta contando segmentos.
+        fc.append(f"movie={png},format=rgba,loop=loop=-1:size=1,setpts=N/{FPS}/TB,"
+                  f"fade=t=in:st=0:d=0.5:alpha=1,fade=t=out:st=3.5:d=0.5:alpha=1[mtx]")
+        # a tarja acompanha a ALTURA REAL do texto: manchete de duas linhas estourava a
+        # faixa fixa de 16% e as letras de baixo ficavam sobre a imagem, ilegíveis
+        topo = max(0, int(H * 0.08 - alt / 2))
+        tarja = min(H, topo + alt + int(H * 0.03))
+        fc.append(f"[vc]drawbox=y=0:h={tarja}:color=black@0.55:t=fill:enable='lt(t,4)'[vbx]")
+        # shortest=1 é OBRIGATÓRIO: a imagem entra com loop=-1 (nunca dá EOF), então com
+        # shortest=0 o overlay segue produzindo quadro pra sempre depois que o vídeo acaba
+        # e o render NUNCA termina. Medido em 2026-09-01: 18 min de ffmpeg e um output.mp4
+        # de 51 MB ainda crescendo, num teste cujo vídeo tem 5,5 s.
+        fc.append(f"[vbx][mtx]overlay=0:{topo}:enable='lt(t,4)':shortest=1{vfade}[v]")
     else:
         fc.append(f"[vc]null{vfade}[v]")
     return ";".join(fc)
@@ -132,13 +137,43 @@ def costurar(partes, saida, tamanho=None):
     return saida
 
 
-def concatenar_cta(corpo, cfg, tamanho=None, abertura=None):
-    """Costura abertura + corpo + CTA, pulando as partes que não existirem."""
+def cartela(texto, destino, tamanho, segundos=1.5):
+    """Cartela de assunto: fundo escuro, o texto do assunto e uma parada.
+
+    Entra ENTRE a abertura e o corpo. A abertura termina em ritmo alto (blocos curtos com
+    fala por cima); emendar o vídeo direto nela faz as duas coisas virarem uma só pra quem
+    assiste. A cartela é a respirada que separa "a chamada" do "o vídeo": 0,25 s pra entrar,
+    1 s parado, 0,25 s pra sair.
+    """
+    W, H, FPS = tamanho
+    png, _ = desenhar(texto, Path(destino).with_suffix(".png"), W, altura=H,
+                      tamanho_px=int(H * 0.075), regua=True)
+    entrada = saida_fade = 0.25
+    fc = [f"color=c=0x0d0b08:s={W}x{H}:r={FPS}:d={segundos}[bg]",
+          f"movie={png},format=rgba,loop=loop=-1:size=1,setpts=N/{FPS}/TB,"
+          f"fade=t=in:st=0:d={entrada}:alpha=1,"
+          f"fade=t=out:st={segundos - saida_fade}:d={saida_fade}:alpha=1[tx]",
+          "[bg][tx]overlay=0:0:shortest=1,format=yuv420p[v]"]
+    run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+         f"anullsrc=r=48000:cl=stereo:d={segundos}",
+         "-filter_complex", ";".join(fc), "-map", "[v]", "-map", "0:a", "-t", str(segundos),
+         "-c:v", "libx264", "-crf", "20", "-preset", "medium",
+         "-c:a", "aac", "-b:a", "128k", str(destino)])
+    return Path(destino)
+
+
+def concatenar_cta(corpo, cfg, tamanho=None, abertura=None, assunto=None):
+    """Costura abertura + cartela de assunto + corpo + CTA, pulando o que não existir."""
     caminho = cfg.get("cta", "assets/cta.mp4")
     cta = Path(caminho).expanduser() if caminho else None   # "" desliga (Path("") vira "." e existe)
     partes = []
     if abertura and Path(abertura).exists():
         partes.append(Path(abertura))
+        # a cartela só faz sentido separando DUAS coisas: sem abertura não há o que quebrar
+        dur = float(cfg.get("cartela_s", 1.5) or 0)
+        if dur > 0 and assunto:
+            partes.append(cartela(assunto, Path(corpo).with_name("cartela.mp4"),
+                                  tamanho or (1920, 1080, 25), dur))
     partes.append(Path(corpo))
     if cta and cta.exists():
         partes.append(cta)
@@ -211,7 +246,8 @@ def render(dir, cfg, rapido=False, sem_audio_original=None):
                 "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-preset", "medium",
                 "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out)]
         run(cmd)
-    concatenar_cta(out, cfg, tamanho if not rapido else None, abertura=dir / "abertura.mp4")
+    concatenar_cta(out, cfg, tamanho if not rapido else None, abertura=dir / "abertura.mp4",
+                   assunto=plan.get("manchete"))
     vid = json.loads((dir / "metadata.json").read_text()).get("id", dir.name)
     dest = Path(cfg["saida"]).expanduser() / vid; dest.mkdir(parents=True, exist_ok=True)
     for f in ("output.mp4", "plan.json", "notas.json", "unidades.json", "custos.json"):

@@ -15,6 +15,7 @@ from urllib.parse import urlparse, parse_qs
 
 from otv.painel import leitura
 from otv.painel.fila import Fila
+from otv.painel.plano import Invalido, salvar as salvar_plano
 
 AQUI = Path(__file__).resolve().parent
 ID_OK = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
@@ -174,9 +175,23 @@ class Handler(BaseHTTPRequestHandler):
                 fase = corpo.get("fase", "selecionar")
                 cmd = P.fila.cmd_fase(fase, d.name, corpo.get("modo"), corpo.get("alvo"))
                 return self._json(P.fila.enfileirar(cmd, f"{fase} {d.name}", d.name).dict())
+            if u.path == "/api/plano":
+                d = P.dir_de(corpo.get("id"))
+                if not d:
+                    return self._erro(404, "rodada não encontrada")
+                novo, avisos = salvar_plano(d, corpo)
+                resp = {"ok": True, "avisos": avisos, "total_s": novo["total_s"],
+                        "segmentos": len(novo["segmentos"])}
+                # "salvar e renderizar" numa tacada: render não chama LLM, custa US$0
+                if corpo.get("renderizar"):
+                    cmd = P.fila.cmd_fase("render", d.name)
+                    resp["job"] = P.fila.enfileirar(cmd, f"render {d.name}", d.name).dict()
+                return self._json(resp)
             if u.path == "/api/cancelar":
                 j = P.fila.cancelar(corpo.get("job"))
                 return self._json(j.dict()) if j else self._erro(404, "job não encontrado")
+        except Invalido as e:
+            return self._erro(400, str(e))
         except ValueError as e:
             return self._erro(400, str(e))
         return self._erro(404, "rota desconhecida")

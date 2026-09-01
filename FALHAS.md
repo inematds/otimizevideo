@@ -24,3 +24,7 @@
 | 2026-08-27 | Groq `verbose_json` com `timestamp_granularities=[word]` devolve `segments: null` → TypeError no spike | pedir `[word, segment]` e tratar `segments or []` | infra |
 | 2026-08-27 | `normalizar_palavras` do brief da Task 3 arredondava fim/ini só no fim: `round(1.85+0.05,3)==1.9`, mas `1.9 < 1.85+0.05` em float puro (1 ULP) → o próprio teste do brief falhava | arredondar ini/fim por palavra ANTES de checar o gap mínimo, e revalidar/"bumpar" (+0.051) no domínio já arredondado | prompt |
 | 2026-09-01 | painel não respondia na 8020 (404 de outro serviço) | porta default trocada pra 8022; a 8020 era do imkt5/inemaimg-adapter | infra |
+| 2026-09-01 | manchete cortada no fim ("...envelhecimen") em todo vídeo com acento | drawtext do ffmpeg 6.1.1 trunca por BYTES — texto virou imagem (PIL) + overlay | infra |
+| 2026-09-01 | narração misturava pronúncia de número ("92%", "2025", "223 milhões") | número por extenso em forma_fala antes do TTS | prompt |
+| 2026-09-01 | render nunca terminava (18 min, 51 MB e subindo) ao desenhar manchete | overlay com loop=-1 exige shortest=1, senão a imagem sem EOF gera quadro pra sempre | prompt |
+| 2026-09-01 | "US$ 1.500" virava "USmil e quinhentos dólares" na fala | regra de moeda com prefixo US$/R$ antes da regra do "$" solto | prompt |

@@ -61,33 +61,35 @@ def test_render_duracao_bate(video_teste, tmp_path):
 
 # --- adendo: manchete desenhada na abertura -------------------------------
 
-def test_montar_filtro_manchete_escapa_dois_pontos():
-    f = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0}], manchete="A:B")
-    # requisito, verbatim: dois-pontos escapado logo após "drawtext=text='...'"
-    # (fontfile= e expansion=none, quando presentes, vão no fim das opções do drawtext)
-    assert "drawtext=text='A\\:B'" in f
+def test_montar_filtro_manchete_vira_imagem_e_nao_drawtext(tmp_path):
+    """O texto agora é rasterizado (PIL) e entra por overlay.
+
+    Trocamos drawtext por imagem porque o drawtext do ffmpeg 6.1.1 trunca pelo número de
+    BYTES: cada caractere acentuado come uma letra do fim. Foi visto em produção — a
+    manchete "IA e bilionários estão tentando vencer o envelhecimento" saiu no output.mp4
+    como "...vencer o envelhecimen". Com imagem, nenhum caractere depende do parser do
+    ffmpeg, então some junto a necessidade de escapar ':', "'", '\\' e '%'.
+    """
+    f = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0}], manchete="A:B's 100% \\ fim",
+                      dir=tmp_path)
+    assert "drawtext=" not in f
+    assert "manchete.png" in f and "overlay=" in f
+    assert (tmp_path / "manchete.png").exists()
     # sem manchete, o caminho continua sendo o null simples
     sem = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0}])
-    assert "[vc]null[v]" in sem and "drawtext=" not in sem
+    assert "[vc]null[v]" in sem and "overlay=" not in sem
 
 
-def test_montar_filtro_manchete_caracteres_perigosos_string():
-    f = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0}], manchete="A:B's \\ fim")
-    # dois pontos escapados, aspa simples virou aspa tipográfica (não quebra o 'texto' do ffmpeg),
-    # barra invertida duplicada
-    assert "A\\:B’s \\\\ fim" in f
-
-
-def test_montar_filtro_manchete_tem_expansion_none():
-    # Achado 1 da rodada de correção 1: sem expansion=none, "%" solto (ex.: "100% de
-    # desconto") vira "%{...}" pro drawtext (expansion=normal é o default) — gera um
-    # WARNING silencioso ("Stray %"), não erro, e o texto some do vídeo sem sinal de
-    # falha nenhum (run() só olha returncode, que continua 0). expansion=none elimina
-    # essa classe de bug inteira em vez de tentar escapar cada '%' (testado à parte que
-    # nem "%%" resolve tudo).
-    f = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0}], manchete="100% de certeza")
-    assert ":expansion=none" in f
-    assert "100% de certeza" in f  # não escapamos o '%' -- expansion=none dispensa isso
+def test_texto_acentuado_nao_perde_letra(tmp_path):
+    """Regressão do bug de bytes: o fim do texto tem que sobreviver ao acento."""
+    from otv.util.texto import desenhar, fonte, quebrar
+    fnt = fonte(40)
+    # a última palavra precisa caber inteira numa linha só (sem quebra), pra a comparação
+    # medir truncamento e não quebra de linha
+    linhas = quebrar("IA e bilionários estão tentando vencer o envelhecimento", fnt, 4000)
+    assert linhas == ["IA e bilionários estão tentando vencer o envelhecimento"]
+    png, alt = desenhar("bilionários envelhecimento", tmp_path / "t.png", 1280, tamanho_px=40)
+    assert png.exists() and alt > 0
 
 
 def test_montar_filtro_sem_audio_original_muda_de_verdade():

@@ -50,6 +50,18 @@ video{width:100%;max-width:520px;border-radius:8px;margin-top:10px;background:#0
 .est.ok{color:var(--ok);border-color:#2c5c3c}
 .est.erro{color:var(--erro);border-color:#5c322c}
 .est.na_fila,.est.cancelado{color:var(--fraco);border-color:var(--linha)}
+.editor{border-top:1px dashed var(--linha);margin-top:12px;padding-top:12px}
+.seg{display:flex;gap:9px;align-items:center;padding:5px 0;border-bottom:1px solid #1d1710;font-size:13px}
+.seg:last-of-type{border-bottom:0}
+.seg input[type=number]{width:78px;padding:5px 7px;font:12.5px var(--mono)}
+.seg input[type=checkbox]{width:auto}
+.seg .txt{flex:1;min-width:0;color:var(--fraco);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg .vis{font:11px var(--mono);color:var(--ambar);width:96px;flex:none}
+.seg.fora{opacity:.4}
+.seg.fora .txt{text-decoration:line-through}
+.editor .topo{display:flex;gap:10px;align-items:flex-end;margin-bottom:10px}
+.editor .topo>div{flex:1}
+.total{font:12px var(--mono);color:var(--fraco);margin:10px 0}
 .vazio{color:var(--fraco);padding:14px 0}
 .aviso{color:var(--erro);font-size:13px;margin-top:8px;min-height:18px}
 .dica{color:var(--fraco);font-size:12.5px;margin-top:8px;line-height:1.45}
@@ -119,7 +131,7 @@ const $ = i => document.getElementById(i);
 const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const seg = s => s == null ? '—' : (s >= 60 ? Math.floor(s/60)+'m'+String(Math.round(s%60)).padStart(2,'0') : (+s).toFixed(0)+'s');
 
-let jobAtivo = null, posLog = 0, abertas = new Set(), assinatura = null;
+let jobAtivo = null, posLog = 0, abertas = new Set(), assinatura = null, editando = null;
 
 async function api(p, corpo){
   const r = await fetch(url(p), corpo ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(corpo)} : {});
@@ -175,10 +187,12 @@ function cardRodada(r){
     <div class="tags">${tags}</div>
     <div class="acoes">
       ${r.tem_saida ? `<button class="sec" data-ver="${esc(r.id)}">${aberta ? 'fechar' : 'ver corte'}</button>` : ''}
+      ${r.plano ? `<button class="sec" data-editar="${esc(r.id)}">${editando === r.id ? 'fechar edição' : 'editar corte'}</button>` : ''}
       <button class="sec" data-refazer="${esc(r.id)}" data-fase="selecionar">re-selecionar (US$0)</button>
       <button class="sec" data-refazer="${esc(r.id)}" data-fase="render">re-render (US$0)</button>
     </div>
     ${aberta && r.tem_saida ? `<video controls preload="metadata" src="${url('/video/'+encodeURIComponent(r.id)+'/output.mp4')}"></video>` : ''}
+    ${editando === r.id ? '<div class="editor" id="editor"><div class="vazio">carregando segmentos…</div></div>' : ''}
   </div></div>`;
 }
 
@@ -212,7 +226,7 @@ async function atualizar(){
 
   // só redesenha a lista quando algo mudou de verdade: redesenhar a cada 2s recriaria o
   // <video> aberto e cortaria a reprodução no meio.
-  const nova = JSON.stringify([d.rodadas, [...abertas].sort()]);
+  const nova = JSON.stringify([d.rodadas, [...abertas].sort(), editando]);
   if(nova === assinatura) return;
   assinatura = nova;
 
@@ -224,6 +238,12 @@ async function atualizar(){
     atualizar();
   });
   $('rodadas').querySelectorAll('[data-refazer]').forEach(b => b.onclick = () => refazer(b.dataset.refazer, b.dataset.fase));
+  $('rodadas').querySelectorAll('[data-editar]').forEach(b => b.onclick = () => {
+    editando = editando === b.dataset.editar ? null : b.dataset.editar;
+    assinatura = null;                     // força redesenho pra abrir/fechar o editor
+    atualizar();
+  });
+  if(editando) abrirEditor(editando);
 }
 
 // A/B/C/N e o A+ dependem de classificação visual por modelo. O slot 'local' só distingue
@@ -249,6 +269,70 @@ function dica(){
 }
 ['modo','visual','substituir'].forEach(i => $(i).addEventListener('change', dica));
 dica();
+
+// ---- editor de corte -------------------------------------------------------
+// Edita o mesmo plan.json da seção 9 do README, pela tela. Só in/out e a inclusão de cada
+// segmento (mais a manchete) são editáveis — o resto o servidor preserva do plano original.
+async function abrirEditor(id){
+  const alvo = document.getElementById('editor');
+  if(!alvo) return;
+  let d;
+  try{ d = await api('/api/rodada/' + encodeURIComponent(id)); }
+  catch(e){ alvo.innerHTML = `<div class="aviso">${esc(e.message)}</div>`; return; }
+
+  alvo.innerHTML = `
+    <div class="topo">
+      <div><label>Manchete (aparece nos 4 primeiros segundos)</label>
+        <input id="ed-manchete" value="${esc(d.plano && d.plano.manchete || '')}"></div>
+    </div>
+    <div id="ed-segs">${d.segmentos.map((s,i) => `
+      <div class="seg" data-i="${i}">
+        <input type="checkbox" checked title="incluir no corte">
+        <input type="number" step="0.1" min="0" class="ini" value="${s.in}">
+        <input type="number" step="0.1" min="0" class="fim" value="${s.out}">
+        <span class="vis">${esc(s.visual || '?')}</span>
+        <span class="txt" title="${esc(s.texto)}">${esc(s.texto)}</span>
+      </div>`).join('')}</div>
+    <div class="total" id="ed-total"></div>
+    <div class="acoes">
+      <button class="sec" id="ed-salvar">salvar plano</button>
+      <button id="ed-render">salvar e renderizar (US$0)</button>
+      <span class="chk" id="ed-msg"></span>
+    </div>
+    <div class="aviso" id="ed-aviso"></div>`;
+
+  const linhas = () => [...alvo.querySelectorAll('.seg')];
+  function recalcular(){
+    let t = 0, n = 0;
+    for(const l of linhas()){
+      const on = l.querySelector('input[type=checkbox]').checked;
+      l.classList.toggle('fora', !on);
+      if(on){ t += (+l.querySelector('.fim').value) - (+l.querySelector('.ini').value); n++; }
+    }
+    $('ed-total').textContent = `${n} segmentos · ${t.toFixed(1)}s de corte`;
+  }
+  alvo.addEventListener('input', recalcular);
+  alvo.addEventListener('change', recalcular);
+  recalcular();
+
+  async function gravar(renderizar){
+    const corpo = {id, manchete: $('ed-manchete').value,
+      segmentos: linhas().map(l => ({i: +l.dataset.i,
+        incluir: l.querySelector('input[type=checkbox]').checked,
+        in: +l.querySelector('.ini').value, out: +l.querySelector('.fim').value})),
+      renderizar};
+    $('ed-aviso').textContent = ''; $('ed-msg').textContent = 'salvando…';
+    try{
+      const r = await api('/api/plano', corpo);
+      $('ed-msg').textContent = `salvo: ${r.segmentos} segmentos, ${r.total_s}s`;
+      if(r.avisos && r.avisos.length) $('ed-aviso').textContent = r.avisos.join(' · ');
+      if(r.job){ jobAtivo = r.job.job; posLog = 0; $('log').textContent = ''; }
+      assinatura = null;
+    }catch(e){ $('ed-msg').textContent = ''; $('ed-aviso').textContent = e.message; }
+  }
+  $('ed-salvar').onclick = () => gravar(false);
+  $('ed-render').onclick = () => gravar(true);
+}
 
 atualizar();
 setInterval(atualizar, 2000);
