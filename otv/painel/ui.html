@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>otv — painel</title>
+<style>
+:root{--bg:#0d0b08;--card:#16120c;--linha:#2a2118;--txt:#e9e6df;--fraco:#9a9186;
+      --ambar:#E2A23B;--ambar2:#f0c070;--ok:#5fbf7f;--erro:#e06b5c;--mono:ui-monospace,"JetBrains Mono",Menlo,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+header{padding:18px 20px;border-bottom:1px solid var(--linha);display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+h1{margin:0;font-size:19px;letter-spacing:.5px}
+h1 b{color:var(--ambar)}
+.sub{color:var(--fraco);font-size:13px}
+main{max-width:1080px;margin:0 auto;padding:20px}
+.card{background:var(--card);border:1px solid var(--linha);border-radius:10px;padding:16px;margin-bottom:18px}
+label{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:var(--fraco);margin-bottom:5px}
+input,select{background:#0a0805;border:1px solid var(--linha);color:var(--txt);border-radius:7px;
+             padding:9px 11px;font:14px var(--mono);width:100%}
+input:focus,select:focus{outline:none;border-color:var(--ambar)}
+.linha{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.linha>div{flex:1;min-width:120px}
+.linha>div.larga{flex:4;min-width:260px}
+button{background:var(--ambar);color:#1a1206;border:0;border-radius:7px;padding:10px 18px;
+       font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap}
+button:hover{background:var(--ambar2)}
+button.sec{background:transparent;color:var(--ambar);border:1px solid var(--linha);font-weight:600;padding:7px 12px;font-size:13px}
+button.sec:hover{border-color:var(--ambar);background:#1e1710}
+button:disabled{opacity:.45;cursor:not-allowed}
+.chk{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--fraco)}
+.chk input{width:auto}
+pre.log{background:#080604;border:1px solid var(--linha);border-radius:7px;padding:12px;
+        font:12.5px/1.55 var(--mono);color:#cfc7bb;max-height:340px;overflow:auto;white-space:pre-wrap;margin:0}
+.rodada{display:flex;gap:14px;border-top:1px solid var(--linha);padding:16px 0}
+.rodada:first-of-type{border-top:0}
+.rodada img{width:150px;height:84px;object-fit:cover;border-radius:6px;background:#000;flex:none}
+.semthumb{width:150px;height:84px;border-radius:6px;background:#0a0805;border:1px dashed var(--linha);flex:none}
+.rodada .corpo{flex:1;min-width:0}
+.tit{font-weight:600;margin-bottom:3px}
+.meta{color:var(--fraco);font-size:12.5px;font-family:var(--mono)}
+.manchete{color:var(--ambar2);font-size:13.5px;margin:6px 0}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.tag{font:11px var(--mono);border:1px solid var(--linha);border-radius:20px;padding:2px 9px;color:var(--fraco)}
+.tag.on{color:var(--ambar);border-color:#5a4526}
+.acoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+video{width:100%;max-width:520px;border-radius:8px;margin-top:10px;background:#000;display:block}
+.est{font:11px var(--mono);border-radius:20px;padding:2px 10px;border:1px solid}
+.est.rodando{color:var(--ambar);border-color:var(--ambar)}
+.est.ok{color:var(--ok);border-color:#2c5c3c}
+.est.erro{color:var(--erro);border-color:#5c322c}
+.est.na_fila,.est.cancelado{color:var(--fraco);border-color:var(--linha)}
+.vazio{color:var(--fraco);padding:14px 0}
+.aviso{color:var(--erro);font-size:13px;margin-top:8px;min-height:18px}
+</style>
+</head>
+<body>
+<header>
+  <h1>otv <b>·</b> painel</h1>
+  <span class="sub" id="sub">carregando…</span>
+</header>
+<main>
+
+<div class="card">
+  <div class="linha">
+    <div class="larga">
+      <label>Fonte — URL do YouTube ou caminho do vídeo</label>
+      <input id="fonte" placeholder="https://youtube.com/watch?v=… ou /home/você/videos/aula.mp4" autocomplete="off">
+    </div>
+    <div style="max-width:110px">
+      <label>Modo</label>
+      <select id="modo"><option>A</option><option>B</option><option>C</option><option>N</option></select>
+    </div>
+    <div style="max-width:110px">
+      <label>Alvo (s)</label>
+      <input id="alvo" type="number" min="15" step="5" value="120">
+    </div>
+    <div style="max-width:150px">
+      <label>Visual</label>
+      <select id="visual"><option value="">(config)</option><option>local</option><option>glm</option><option>gemini</option><option>claude_cli</option></select>
+    </div>
+    <div style="flex:none"><button id="rodar">Rodar</button></div>
+  </div>
+  <div class="acoes">
+    <span class="chk"><input type="checkbox" id="abertura"><label for="abertura" style="margin:0;text-transform:none;letter-spacing:0">abertura</label></span>
+    <span class="chk"><input type="checkbox" id="forcar"><label for="forcar" style="margin:0;text-transform:none;letter-spacing:0">--forcar (refaz tudo, custa de novo)</label></span>
+  </div>
+  <div class="aviso" id="aviso"></div>
+</div>
+
+<div class="card" id="cardjob" hidden>
+  <div class="acoes" style="margin:0 0 10px">
+    <span class="est" id="jobest">—</span>
+    <strong id="jobrot" style="font:13px var(--mono)"></strong>
+    <button class="sec" id="cancelar">cancelar</button>
+  </div>
+  <pre class="log" id="log"></pre>
+</div>
+
+<div class="card">
+  <label style="margin-bottom:12px">Já rodou</label>
+  <div id="rodadas"><div class="vazio">carregando…</div></div>
+</div>
+
+</main>
+<script>
+const T = new URLSearchParams(location.search).get('t');
+const url = p => p + (T ? (p.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(T) : '');
+const $ = i => document.getElementById(i);
+const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const seg = s => s == null ? '—' : (s >= 60 ? Math.floor(s/60)+'m'+String(Math.round(s%60)).padStart(2,'0') : (+s).toFixed(0)+'s');
+
+let jobAtivo = null, posLog = 0, abertas = new Set(), assinatura = null;
+
+async function api(p, corpo){
+  const r = await fetch(url(p), corpo ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(corpo)} : {});
+  const j = await r.json().catch(() => ({erro:'resposta inválida do servidor'}));
+  if(!r.ok) throw new Error(j.erro || ('HTTP ' + r.status));
+  return j;
+}
+
+$('rodar').onclick = async () => {
+  const fonte = $('fonte').value.trim();
+  $('aviso').textContent = '';
+  if(!fonte){ $('aviso').textContent = 'informe a URL ou o caminho do vídeo'; return; }
+  $('rodar').disabled = true;
+  try{
+    const j = await api('/api/rodar', {fonte, modo:$('modo').value, alvo:+$('alvo').value,
+                                       visual:$('visual').value || null,
+                                       abertura:$('abertura').checked, forcar:$('forcar').checked});
+    jobAtivo = j.job; posLog = 0; $('log').textContent = ''; $('fonte').value = '';
+    atualizar();
+  }catch(e){ $('aviso').textContent = e.message; }
+  finally{ $('rodar').disabled = false; }
+};
+
+$('cancelar').onclick = async () => { if(jobAtivo) { try{ await api('/api/cancelar', {job:jobAtivo}); }catch(e){} } };
+
+async function refazer(id, fase){
+  const corpo = {id, fase};
+  if(fase === 'selecionar'){
+    const alvo = prompt('novo alvo em segundos (vazio = manter)', '');
+    if(alvo === null) return;
+    if(alvo.trim()) corpo.alvo = +alvo;
+    const modo = prompt('modo (A/B/C/N, vazio = manter)', '');
+    if(modo === null) return;
+    if(modo.trim()) corpo.modo = modo.trim().toUpperCase();
+  }
+  try{
+    const j = await api('/api/refazer', corpo);
+    jobAtivo = j.job; posLog = 0; $('log').textContent = '';
+    atualizar();
+  }catch(e){ $('aviso').textContent = e.message; }
+}
+
+function cardRodada(r){
+  const p = r.plano;
+  const thumb = r.thumb ? `<img src="${url('/thumb/'+encodeURIComponent(r.id)+'/'+r.thumb)}" alt="">` : `<div class="semthumb"></div>`;
+  const tags = Object.entries(r.artefatos).filter(([,v]) => v).map(([k]) => `<span class="tag on">${k}</span>`).join('');
+  const aberta = abertas.has(r.id);
+  return `<div class="rodada">${thumb}<div class="corpo">
+    <div class="tit">${esc(r.titulo)}</div>
+    <div class="meta">${esc(r.id)} · original ${seg(r.duracao_s)}${p ? ` · modo ${p.modo} · corte ${seg(p.total_s)} em ${p.segmentos} segmentos (alvo ${p.alvo_s}s)` : ' · sem plano'} · US$${(r.usd||0).toFixed(4)}</div>
+    ${p && p.manchete ? `<div class="manchete">“${esc(p.manchete)}”</div>` : ''}
+    <div class="tags">${tags}</div>
+    <div class="acoes">
+      ${r.tem_saida ? `<button class="sec" data-ver="${esc(r.id)}">${aberta ? 'fechar' : 'ver corte'}</button>` : ''}
+      <button class="sec" data-refazer="${esc(r.id)}" data-fase="selecionar">re-selecionar (US$0)</button>
+      <button class="sec" data-refazer="${esc(r.id)}" data-fase="render">re-render (US$0)</button>
+    </div>
+    ${aberta && r.tem_saida ? `<video controls preload="metadata" src="${url('/video/'+encodeURIComponent(r.id)+'/output.mp4')}"></video>` : ''}
+  </div></div>`;
+}
+
+async function atualizar(){
+  let d;
+  try{ d = await api('/api/rodadas'); }
+  catch(e){ $('sub').textContent = 'sem conexão com o servidor'; return; }
+
+  const rodando = d.jobs.find(j => j.estado === 'rodando');
+  const naFila = d.jobs.filter(j => j.estado === 'na_fila').length;
+  $('sub').textContent = `${d.rodadas.length} rodadas · ${rodando ? '1 job rodando' : 'ocioso'}${naFila ? ` · ${naFila} na fila` : ''} · pontuação ${d.cfg.pontuacao}`;
+
+  if(!jobAtivo && rodando){ jobAtivo = rodando.job; posLog = 0; $('log').textContent = ''; }
+  const j = d.jobs.find(x => x.job === jobAtivo);
+  $('cardjob').hidden = !j;
+  if(j){
+    $('jobest').textContent = j.estado;
+    $('jobest').className = 'est ' + j.estado;
+    $('jobrot').textContent = j.rotulo;
+    $('cancelar').disabled = !['rodando','na_fila'].includes(j.estado);
+    try{
+      const l = await api('/api/log/' + j.job + '?desde=' + posLog);
+      if(l.texto){
+        const perto = $('log').scrollTop + $('log').clientHeight >= $('log').scrollHeight - 40;
+        $('log').textContent += l.texto;
+        posLog = l.pos;
+        if(perto) $('log').scrollTop = $('log').scrollHeight;
+      }
+    }catch(e){}
+  }
+
+  // só redesenha a lista quando algo mudou de verdade: redesenhar a cada 2s recriaria o
+  // <video> aberto e cortaria a reprodução no meio.
+  const nova = JSON.stringify([d.rodadas, [...abertas].sort()]);
+  if(nova === assinatura) return;
+  assinatura = nova;
+
+  $('rodadas').innerHTML = d.rodadas.length ? d.rodadas.map(cardRodada).join('')
+    : '<div class="vazio">nada rodou ainda — cole uma URL acima.</div>';
+  $('rodadas').querySelectorAll('[data-ver]').forEach(b => b.onclick = () => {
+    const id = b.dataset.ver;
+    abertas.has(id) ? abertas.delete(id) : abertas.add(id);
+    atualizar();
+  });
+  $('rodadas').querySelectorAll('[data-refazer]').forEach(b => b.onclick = () => refazer(b.dataset.refazer, b.dataset.fase));
+}
+
+atualizar();
+setInterval(atualizar, 2000);
+</script>
+</body>
+</html>

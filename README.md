@@ -409,3 +409,59 @@ GROQ_API_KEY=... OPENROUTER_API_KEY=... python3 otv.py run <url> --modo A
 # opção 2: .env na raiz do projeto (ignorado pelo git)
 printf 'GROQ_API_KEY=...\nOPENROUTER_API_KEY=...\n' > .env
 ```
+
+## 16. Painel web — mandar e ver o que já rodou
+
+```bash
+python3 otv.py painel            # http://localhost:8022 e http://192.168.x.x:8022
+```
+
+Sobe um servidor da **stdlib** (sem Flask, sem dependência nova) que escuta em `0.0.0.0`,
+então qualquer aparelho da LAN abre pelo IP da máquina. Ele roda **dentro do projeto**: usa o
+mesmo `config.yaml` e a mesma pasta `trabalho/`, e dispara o próprio `otv.py` como
+subprocesso — não existe caminho paralelo, o painel não sabe fazer nada que o CLI não faça.
+
+Na tela:
+
+- **Mandar** — cola a URL do YouTube *ou o caminho de um vídeo local*, escolhe modo (A/B/C/N),
+  alvo e slot visual, e clica em Rodar. A fila é **serial, um job por vez** (detecção de cena é
+  CPU-bound; dois jobs paralelos só se atrapalham).
+- **Acompanhar** — o log ao vivo é o stdout das fases (`[ingest] ok`, `[pontuar] ok`…), gravado
+  em `trabalho/.painel/painel-<job>.log`. O job é subprocesso, então **continua rodando se você
+  fechar o browser** — reabrir reengata no log.
+- **Ver o que já rodou** — cada rodada de `trabalho/` com thumb, título, duração original,
+  modo, duração do corte, manchete, custo em US$ e os artefatos que existem. Quem já tem
+  `output.mp4` ganha player inline (com `Range`, então dá pra dar seek).
+- **Re-cortar de graça** — botões `re-selecionar` (pede outro alvo/modo) e `re-render` em cada
+  rodada. Nenhum dos dois chama LLM: US$0, quantas vezes quiser (seção 8).
+
+Opções: `--porta 8022` (o default 8020 costuma estar ocupado), `--host 127.0.0.1` pra prender
+só na máquina local.
+
+### Liberar na rede
+
+O servidor já escuta em `0.0.0.0`; o que costuma faltar é o firewall:
+
+```bash
+sudo ufw allow 8022/tcp
+```
+
+### Segurança
+
+Sem autenticação por padrão — a premissa é LAN doméstica. Defina `OTV_PAINEL_TOKEN` para
+exigir token (`http://…:8022/?t=<token>`):
+
+```bash
+OTV_PAINEL_TOKEN=$(openssl rand -hex 16) python3 otv.py painel
+```
+
+Duas travas existem porque isto fica exposto na rede, e não devem ser removidas:
+
+- **todo comando vai pro `Popen` como lista de argumentos, nunca por shell** — sem isso o
+  campo de fonte viraria execução de comando arbitrário para qualquer um da LAN;
+- **todo id é resolvido e conferido contra a raiz de `trabalho/`** antes de virar caminho de
+  arquivo, e as fases disparáveis são uma lista branca (`selecionar`, `render`, `narrar`,
+  `abertura`, `substituir`) — sem isso `../../etc/passwd` viraria download.
+
+Lembre que **qualquer aparelho da LAN pode disparar um job pago** (~US$0,03 por vídeo). Se
+isso incomodar, use o token ou `--host 127.0.0.1`.

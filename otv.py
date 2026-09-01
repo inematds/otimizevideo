@@ -5,7 +5,7 @@ from pathlib import Path
 from otv.config import carregar_config
 from otv.fases import ingest as F_ing, transcrever as F_tr, unidades as F_un, cenas as F_ce, pontuar as F_po, selecionar as F_se, render as F_re, narrar as F_na, substituir as F_su, abertura as F_ab
 
-ARTEFATOS = ["video.mp4", "audio.opus", "metadata.json", "transcript.json", "scenes.json", "unidades.json", "notas.json", "plan.json", "abertura.mp4", "output.mp4"]
+from otv.painel.leitura import ARTEFATOS, custo_total  # única fonte de verdade: o painel lê o mesmo
 
 def pasta(cfg, id_):
     d = Path(cfg["trabalho"]) / id_
@@ -65,13 +65,29 @@ def cmd_status(a, cfg, d=None):
 
 def cmd_custo(a, cfg):
     d = pasta(cfg, a.id); c = json.loads((d / "custos.json").read_text()) if (d / "custos.json").exists() else {}
-    total = 0.0
     for fase, v in c.items():
         if not isinstance(v, dict):  # custos.json legado/malformado (chave -> escalar): pula em vez de quebrar
             continue
-        usd = (v.get("uso") or {}).get("cost") or 0; total += usd
+        usd = (v.get("uso") or {}).get("cost") or 0
         print(f"  {fase:12s} {v.get('segundos', '-'):>7} s  US${usd:.4f}  {v.get('provedor', v.get('llm', ''))}")
-    print(f"  total US${total:.4f} (transcrição Groq não reporta custo: ~US$0,04/h)")
+    print(f"  total US${custo_total(c):.4f} (transcrição Groq não reporta custo: ~US$0,04/h)")
+
+def cmd_painel(a, cfg):
+    from otv.painel.servidor import servir
+    import socket
+    httpd = servir(cfg, a.host, a.porta, a.config)
+    ip = "?"
+    try:
+        s_ = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s_.connect(("8.8.8.8", 80))
+        ip = s_.getsockname()[0]; s_.close()
+    except OSError:
+        pass
+    print(f"painel em http://localhost:{a.porta}  ·  na rede: http://{ip}:{a.porta}")
+    print(f"trabalho: {Path(cfg['trabalho']).resolve()}  ·  ctrl-c para parar")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nparando…"); httpd.shutdown()
 
 def main():
     p = argparse.ArgumentParser(prog="otv", description=__doc__)
@@ -90,6 +106,8 @@ def main():
         # chamada de ~12s (capa editorial + promessas) colada ANTES do conteúdo
         s_.add_argument("--abertura", action="store_true")
         s_.add_argument("--forcar", action="store_true")
+    pa = sub.add_parser("painel", help="painel web na LAN pra mandar e ver o que já rodou")
+    pa.add_argument("--porta", type=int, default=8022); pa.add_argument("--host", default="0.0.0.0")
     i = sub.add_parser("ingest"); i.add_argument("fonte"); i.add_argument("--forcar", action="store_true")
     # CORREÇÃO 4 (rodada 1 de revisão): só declara --provedor/--forcar no subcomando que de
     # fato os repassa pra fase (ver main(), abaixo) — antes o loop dava as duas flags pra
@@ -109,6 +127,7 @@ def main():
     if a.cmd == "ingest": return print(F_ing.ingest(a.fonte, cfg["trabalho"], forcar=a.forcar))
     if a.cmd == "status": return cmd_status(a, cfg)
     if a.cmd == "custo": return cmd_custo(a, cfg)
+    if a.cmd == "painel": return cmd_painel(a, cfg)
     d = pasta(cfg, a.id)
     if a.cmd == "transcrever": print(F_tr.transcrever(d, cfg, a.provedor, forcar=a.forcar))
     elif a.cmd == "cenas":
