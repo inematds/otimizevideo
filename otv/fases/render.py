@@ -4,6 +4,9 @@ from otv.util.ffmpeg import probe, run
 from otv.util.custos import registrar
 from otv.util.texto import desenhar
 
+# Zoom aplicado ao longo do congelamento (0.06 = +6% no fim). Ver montar_filtro.
+ZOOM_FREEZE = 0.06
+
 # A manchete e a cartela NÃO usam drawtext: o drawtext do ffmpeg 6.1.1 trunca o texto pelo
 # número de bytes, comendo uma letra do fim por caractere acentuado (medição e detalhes em
 # otv/util/texto.py). O texto é rasterizado com PIL e entra no filtro como imagem.
@@ -55,6 +58,23 @@ def montar_filtro(segmentos, narracao=None, cama_db=-18, sem_audio_original=True
         if ext > 0:
             if not subst:
                 v += f",tpad=stop_mode=clone:stop_duration={ext}"
+                # ZOOM LENTO SOBRE O CONGELAMENTO: o tpad clona o último quadro, e um
+                # quadro 100% estático por segundos parece que o player travou. O zoom
+                # começa onde o vídeo acaba e chega a +6% no fim da extensão.
+                #
+                # zoompan e NÃO crop: no crop, `w`/`h` são avaliados uma única vez, na
+                # configuração do filtro — só `x`/`y` mudam por quadro. Medido em
+                # 2026-09-01: crop com w='iw/(...t...)' deu diferença média de 0,01 px
+                # entre o começo e o fim do congelamento, ou seja, zoom nenhum. O zoompan
+                # avalia `z` a cada quadro; `on` é o índice do quadro de saída, e d=1
+                # mantém a relação 1 quadro de entrada -> 1 de saída.
+                if ext >= 0.15:
+                    nv = max(1, round(d * FPS))
+                    ne = max(1, round(ext * FPS))
+                    z = (f"if(lte(on\\,{nv})\\,1\\,"
+                         f"1+{ZOOM_FREEZE}*min((on-{nv})/{ne}\\,1))")
+                    v += (f",zoompan=z='{z}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+                          f"s={W}x{H}:fps={FPS},setsar=1")
             a += f",apad=pad_dur={ext}"
         if narracao and narracao[k]:
             # sem_audio_original=True precisa silenciar de verdade: "volume=0dB" é ganho

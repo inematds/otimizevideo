@@ -351,3 +351,45 @@ def test_costurar_junta_tres_partes(video_teste, tmp_path):
     from otv.fases.render import costurar
     out = costurar([video_teste, video_teste, video_teste], tmp_path / "tri.mp4", (320, 240, 25))
     assert abs(probe(out)["duracao_s"] - 18.0) < 0.6      # 3 × 6s da fixture
+
+
+# --- zoom lento sobre o congelamento ----------------------------------------
+
+def test_congelamento_nao_fica_100_por_cento_estatico(video_teste, tmp_path):
+    """O tpad clona o último quadro; quadro parado por segundos parece player travado.
+
+    O zoom tem que ser GRADUAL — por isso a comparação é início→meio→fim, e não só
+    início→fim: um filtro que aplicasse zoom fixo ao segmento inteiro também passaria numa
+    checagem de "os extremos são diferentes".
+    """
+    import statistics
+    from PIL import Image, ImageChops
+    _preparar(tmp_path, video_teste, "freeze", {
+        "modo": "A", "alvo_s": 5, "total_s": 5.0, "narracao": None, "manchete": None,
+        "segmentos": [{"in": 0.0, "out": 2.0, "unidades": [0], "estender_s": 3.0}]})
+    out = render(tmp_path, {"saida": str(tmp_path / "saida"), "cta": "", "fade_final_s": 0})
+    assert abs(probe(out)["duracao_s"] - 5.0) < 0.15    # o zoom não pode mudar a duração
+
+    def quadro(t, nome):
+        p = tmp_path / f"{nome}.png"
+        thumb(out, t, p)
+        return Image.open(p).convert("RGB")
+
+    def dif(a, b):
+        return statistics.mean(ImageChops.difference(a, b).convert("L").getdata())
+
+    ini, meio, fim = quadro(2.1, "ini"), quadro(3.5, "meio"), quadro(4.9, "fim")
+    d_meio, d_fim = dif(ini, meio), dif(ini, fim)
+    assert d_meio > 1.0, f"congelamento parado no meio (diferença {d_meio:.2f})"
+    assert d_fim > d_meio, f"zoom não é progressivo (meio {d_meio:.2f}, fim {d_fim:.2f})"
+
+
+def test_congelamento_curto_nao_ganha_zoom():
+    """Abaixo de 0,15s o zoom não teria tempo de aparecer e só custaria reencode."""
+    f = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0.1}], tamanho=(640, 360, 25))
+    assert "tpad=stop_mode=clone" in f and "zoompan" not in f
+
+
+def test_segmento_sem_extensao_nao_ganha_zoom():
+    f = montar_filtro([{"in": 0.0, "out": 2.0, "estender_s": 0}], tamanho=(640, 360, 25))
+    assert "zoompan" not in f and "tpad" not in f
