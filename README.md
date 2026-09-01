@@ -413,8 +413,22 @@ printf 'GROQ_API_KEY=...\nOPENROUTER_API_KEY=...\n' > .env
 ## 16. Painel web — mandar e ver o que já rodou
 
 ```bash
-python3 otv.py painel            # http://localhost:8022 e http://192.168.x.x:8022
+./start.sh                 # sobe o painel; ./start.sh 9000 usa outra porta
+./stop.sh                  # para (recusa se houver job rodando)
 ```
+
+`start.sh` faz a pré-checagem antes de subir — `ffmpeg`/`ffprobe` no `PATH`, os módulos
+Python do `requirements.txt`, `yt-dlp`, e se as keys estão achando (só avisa, não bloqueia) —
+porque falhar aqui é mais barato que falhar no meio de um job já pago. Depois roda com
+`setsid`, então **o painel sobrevive ao fechar o terminal**, e grava `trabalho/.painel/painel.pid`.
+
+Recusa subir se já houver painel rodando **em qualquer porta**: duas instâncias
+compartilhariam `trabalho/.painel/` e a segunda sobrescreveria o histórico de jobs da
+primeira. `./stop.sh` **se recusa a parar com job em andamento** (`--forcar` mata o job
+junto). Opções: `./start.sh --local` prende em `127.0.0.1`; `./start.sh --token` gera um
+token e exige `?t=…`.
+
+Sem os scripts, o comando cru é `python3 otv.py painel [--porta 8022] [--host 0.0.0.0]`.
 
 Sobe um servidor da **stdlib** (sem Flask, sem dependência nova) que escuta em `0.0.0.0`,
 então qualquer aparelho da LAN abre pelo IP da máquina. Ele roda **dentro do projeto**: usa o
@@ -439,9 +453,6 @@ Na tela:
   `output.mp4` ganha player inline (com `Range`, então dá pra dar seek).
 - **Re-cortar de graça** — botões `re-selecionar` (pede outro alvo/modo) e `re-render` em cada
   rodada. Nenhum dos dois chama LLM: US$0, quantas vezes quiser (seção 8).
-
-Opções: `--porta 8022` (o default 8020 costuma estar ocupado), `--host 127.0.0.1` pra prender
-só na máquina local.
 
 ### Onde ele fica acessível
 
