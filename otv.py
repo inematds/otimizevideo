@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """otv — condensa vídeos longos em ~2 min. Fases com JSON entre elas; provedores em config.yaml."""
-import argparse, json, sys
+import argparse, json, os, sys
 from pathlib import Path
 from otv.config import carregar_config
 from otv.fases import ingest as F_ing, transcrever as F_tr, unidades as F_un, cenas as F_ce, pontuar as F_po, selecionar as F_se, render as F_re, narrar as F_na, substituir as F_su, abertura as F_ab
@@ -74,16 +74,27 @@ def cmd_custo(a, cfg):
 
 def cmd_painel(a, cfg):
     from otv.painel.servidor import servir
-    import socket
+    import socket, subprocess as sp
     httpd = servir(cfg, a.host, a.porta, a.config)
-    ip = "?"
-    try:
-        s_ = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s_.connect(("8.8.8.8", 80))
-        ip = s_.getsockname()[0]; s_.close()
-    except OSError:
-        pass
-    print(f"painel em http://localhost:{a.porta}  ·  na rede: http://{ip}:{a.porta}")
-    print(f"trabalho: {Path(cfg['trabalho']).resolve()}  ·  ctrl-c para parar")
+    print(f"painel: http://localhost:{a.porta}")
+    if a.host not in ("127.0.0.1", "localhost"):
+        # a máquina pode ter várias redes (LAN dupla, Tailscale, docker0): lista todas as
+        # que um aparelho poderia usar, em vez de só a da rota padrão
+        try:
+            ips = sp.run(["hostname", "-I"], capture_output=True, text=True, timeout=5).stdout.split()
+        except (OSError, sp.SubprocessError):
+            ips = []
+        for ip in ips:
+            # só IPv4: o bind é 0.0.0.0, então imprimir um endereço v6 seria uma URL que
+            # não responde. E fora as bridges de docker/libvirt, por onde ninguém acessa.
+            if ":" in ip or ip.startswith(("172.1", "172.2", "172.3")) or ip.endswith(".1"):
+                continue
+            marca = "  (tailscale — alcançável fora da LAN)" if ip.startswith("100.") else ""
+            print(f"        http://{ip}:{a.porta}{marca}")
+        if not os.environ.get("OTV_PAINEL_TOKEN"):
+            print("aviso:  sem token — qualquer aparelho dessas redes pode disparar job pago "
+                  "(defina OTV_PAINEL_TOKEN, ou use --host 127.0.0.1)")
+    print(f"trabalho: {Path(cfg['trabalho']).resolve()}  ·  ctrl-c para parar", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

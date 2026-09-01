@@ -438,13 +438,20 @@ Na tela:
 Opções: `--porta 8022` (o default 8020 costuma estar ocupado), `--host 127.0.0.1` pra prender
 só na máquina local.
 
-### Liberar na rede
+### Onde ele fica acessível
 
-O servidor já escuta em `0.0.0.0`; o que costuma faltar é o firewall:
+Ao subir, o painel imprime todos os endereços IPv4 por onde responde:
 
-```bash
-sudo ufw allow 8022/tcp
 ```
+painel: http://localhost:8022
+        http://192.168.1.172:8022
+        http://100.70.253.64:8022  (tailscale — alcançável fora da LAN)
+```
+
+**Repare no endereço Tailscale.** Numa máquina com tailnet, "LAN" não é o limite: o painel
+responde para qualquer aparelho do tailnet, inclusive fora de casa. Se o firewall bloquear a
+porta (não é o caso na máquina de referência), libere com `sudo ufw allow 8022/tcp`; para
+prender só na máquina local, `--host 127.0.0.1`.
 
 ### Segurança
 
@@ -463,5 +470,6 @@ Duas travas existem porque isto fica exposto na rede, e não devem ser removidas
   arquivo, e as fases disparáveis são uma lista branca (`selecionar`, `render`, `narrar`,
   `abertura`, `substituir`) — sem isso `../../etc/passwd` viraria download.
 
-Lembre que **qualquer aparelho da LAN pode disparar um job pago** (~US$0,03 por vídeo). Se
-isso incomodar, use o token ou `--host 127.0.0.1`.
+Lembre que **qualquer aparelho que alcance a máquina pode disparar um job pago** (~US$0,03
+por vídeo) — LAN e tailnet incluídos. O painel avisa no start quando sobe sem token. Se
+isso incomodar, defina `OTV_PAINEL_TOKEN` ou use `--host 127.0.0.1`.
