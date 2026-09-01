@@ -115,7 +115,7 @@ pode ser trocado com `--config outro.yaml`.
 | | `gemini` (`google/gemini-2.5-flash-lite` via OpenRouter) | Precisa de `OPENROUTER_API_KEY` | |
 | | `ollama` (`qwen3.8:27b`) | Local, grátis, mas precisa de **daemon Ollama** rodando (`http://localhost:11434`) | |
 | | `claude_cli` (Claude Code headless) | Sai da assinatura — sem API key, precisa do `claude` no `PATH` | |
-| `tts` | `inemavox` | Local, grátis, mas precisa do **daemon inemavox** rodando (`http://localhost:8010`) | **default** |
+| `tts` | `inemavox` | Local, grátis, mas precisa do **daemon inemavox** rodando (`http://localhost:8010`). Voz e motor saem de `config.yaml → voz:` / `tts_engine:` — o default é **`edge` + `pt-BR-FranciscaNeural`** (ver seção 15) | **default** |
 | | `elevenlabs` | Cloud, precisa de `ELEVENLABS_API_KEY` e `ELEVENLABS_VOICE_ID`; cobra por caractere | |
 
 Os modelos concretos de cada slot de LLM (`glm`, `gemini`, `ollama`, `claude_cli`, e o
@@ -375,6 +375,28 @@ A narração **não é conteúdo novo**: o prompt (`prompts/narrar_n.md`) manda 
 ao que já foi dito — tirar hesitação, ligar o salto que o corte deixou, manter número e nome
 próprio exatamente como estão — e proíbe acrescentar fato, data ou conclusão que não esteja na
 fala. O `roteiro.md` é o ponto de revisão antes do render.
+
+### A voz: `edge` + `pt-BR-FranciscaNeural` (default desde 2026-09-01)
+
+O default era `chatterbox` com a voz `rachel`. O chatterbox é um modelo de clonagem de voz
+nascido em inglês e **escorregava para a fonética inglesa** no meio de frases em português,
+tipicamente ao encontrar nome próprio ("DroidUp", "Walker 3", "Moya", "startup"): a fala saía
+em outra língua sem nenhum erro no texto — o roteiro estava 100% em português. Não havia
+correção de texto que resolvesse; era o motor.
+
+Comparação medida no mesmo vídeo, mesmo roteiro:
+
+| | `chatterbox` / `rachel` | `edge` / `pt-BR-FranciscaNeural` |
+|---|---|---|
+| fala total | 187,4 s | **156,3 s** |
+| imagem congelada | 2,5 s em 2 segmentos | **0 s, nenhum** |
+| esticão necessário | até 8 s por segmento | 1–4,5 s |
+| saída final | 210,6 s | **190,3 s** |
+| geração de uma frase | 28,2 s | **4,1 s** |
+
+Falar mais rápido resolve três coisas de uma vez: acaba com o congelamento, reduz o esticão
+(que em vídeo com legenda queimada puxa texto de outro trecho) e deixa a geração 7× mais
+rápida. Para voltar ao anterior, `voz: rachel` + `tts_engine: chatterbox` no `config.yaml`.
 
 ### Fala e imagem sempre casadas
 

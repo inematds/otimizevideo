@@ -4,7 +4,7 @@ import copy, yaml
 DEFAULTS = {
     "transcricao": "groq", "visual": "local", "pontuacao": "glm", "tts": "inemavox",
     "imagem": "fal",
-    "voz": "rachel", "tts_engine": "chatterbox",
+    "voz": "pt-BR-FranciscaNeural", "tts_engine": "edge",
     "cta": "assets/cta.mp4", "fade_final_s": 0.8,
     "modelos": {"glm": "z-ai/glm-5.3-flash", "gemini": "google/gemini-2.5-flash-lite",
                 "ollama": "qwen3.8:27b", "whisper_local": "turbo", "claude_cli": "sonnet",

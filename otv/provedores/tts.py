@@ -18,7 +18,7 @@ STATUS_EM_ANDAMENTO = {"queued", "running", "pending", "processing"}
 # desiste rápido com o status observado na mensagem.
 N_DESCONHECIDO = 15  # ~30s (intervalo de poll de 2s) antes de desistir de um status não reconhecido
 
-def tts_inemavox(texto, out, voz="rachel", engine="chatterbox"):
+def tts_inemavox(texto, out, voz="pt-BR-FranciscaNeural", engine="edge"):
     r = requests.post(f"{INEMAVOX}/api/jobs/tts", json={"text": texto, "engine": engine, "voice": voz, "lang": "pt"}, timeout=60)
     r.raise_for_status(); jid = r.json()[CAMPO_ID]
     ultimo_desconhecido, repeticoes = None, 0
@@ -59,4 +59,4 @@ def tts(texto, out, cfg, provedor=None):
         return tts_elevenlabs(texto, out, cfg.get("voz_elevenlabs"))
     # a voz e a engine saem do config.yaml (`voz:` / `tts_engine:`) em vez de ficarem
     # presas no default da função: é a única coisa que o usuário troca com frequência.
-    return tts_inemavox(texto, out, cfg.get("voz", "rachel"), cfg.get("tts_engine", "chatterbox"))
+    return tts_inemavox(texto, out, cfg.get("voz", "pt-BR-FranciscaNeural"), cfg.get("tts_engine", "edge"))
