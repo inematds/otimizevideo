@@ -13,6 +13,9 @@ MAX_FREEZE = 3.0  # teto de freeze em segundos — mesmo valor usado por ajustar
 # pediu explicitamente que o clipe pare e espere a fala terminar — por isso o teto de
 # freeze é maior aqui: prefere-se congelar o quadro a truncar a frase.
 MAX_FREEZE_N = 6.0
+# Silêncio tolerado no fim de um segmento antes de encolher o vídeo (ver encolher_por_fala).
+FOLGA_FIM = 0.6      # respiro que fica DEPOIS da última palavra
+LIMIAR_SOBRA = 1.5   # abaixo disso a sobra é respiro, não buraco
 PROMPTS = {"N": "prompts/narrar_n.md"}   # os outros modos usam prompts/narrar.md
 
 def duracao_wav(p):
@@ -21,6 +24,70 @@ def duracao_wav(p):
 def ajustar_extensao(segmentos, duracoes, max_freeze=MAX_FREEZE):
     for s, d in zip(segmentos, duracoes):
         s["estender_s"] = round(min(max_freeze, max(0.0, d - (s["out"] - s["in"]))), 2)
+
+def encolher_por_fala(segmentos, duracoes, min_segmento_s=3.0,
+                      limiar=LIMIAR_SOBRA, folga=FOLGA_FIM):
+    """Encurta o segmento cuja narração ficou MUITO mais curta que o trecho de vídeo.
+
+    `truncar_por_orcamento` já impedia a narração de estourar o segmento, mas nada tratava o
+    lado oposto: o modelo condensar 19 s de fala original numa frase de 5 s. Nos modos com
+    narração o áudio original é silenciado, então o que sobra é vídeo mudo — no vídeo de
+    2026-09-01 deu 14,4 s parados sem ninguém falando, a partir de 2:05.
+
+    Encolher (e não esticar a fala) é o certo: o corte é condensado por definição, e ficar
+    olhando imagem muda é pior que perder alguns segundos de imagem. `min_segmento_s` e a
+    folga impedem que o segmento vire um flash ou que a última sílaba seja cortada.
+
+    Devolve a lista de (índice, segundos_removidos) do que foi encolhido.
+    """
+    encolhidos = []
+    for k, (s, d) in enumerate(zip(segmentos, duracoes)):
+        video = s["out"] - s["in"]
+        sobra = video - (d + folga)
+        if d <= 0 or sobra <= limiar:
+            continue                       # sem fala, ou a sobra é só respiro
+        novo_fim = round(max(s["in"] + min_segmento_s, s["in"] + d + folga), 3)
+        if novo_fim >= s["out"]:
+            continue
+        encolhidos.append((k, round(s["out"] - novo_fim, 2)))
+        s["out"] = novo_fim
+    return encolhidos
+
+
+def esticar_por_fala(segmentos, duracoes, duracao_video, folga=FOLGA_FIM, teto_esticar=8.0):
+    """Estica o segmento cuja narração é MAIS LONGA que o trecho, usando o vídeo original.
+
+    `ajustar_extensao` cobre a diferença congelando o último quadro, mas com teto de
+    MAX_FREEZE_N (6 s). Passando disso o `atrim` do render decepa a frase no meio — foi o
+    que aconteceu em 2026-09-01: o segmento em 2:34 tinha 15,4 s (vídeo + freeze) para
+    17,9 s de fala e a narração sumiu no meio da frase. O `truncar_por_orcamento` não
+    pegou porque PPM (2,5 palavras/s) subestima o TTS quando o texto tem número por
+    extenso ("noventa e dois por cento" é uma palavra longa que ele lê devagar).
+
+    Esticar é melhor que congelar por mais tempo: o vídeo continua DEPOIS de `out` — é
+    imagem em movimento de graça, contígua ao que já está no corte. Só congela o que
+    sobrar. O esticão para na entrada do próximo segmento (não repete material que já vai
+    aparecer) e no fim do vídeo.
+
+    Devolve [(índice, segundos_ganhos)].
+    """
+    esticados = []
+    # ordem cronológica pra saber quem é o "próximo" no vídeo-fonte, não no corte
+    ordem = sorted(range(len(segmentos)), key=lambda k: segmentos[k]["in"])
+    for pos, k in enumerate(ordem):
+        s, d = segmentos[k], duracoes[k]
+        precisa = (d + folga) - (s["out"] - s["in"])
+        if d <= 0 or precisa <= 0:
+            continue
+        seguinte = segmentos[ordem[pos + 1]]["in"] if pos + 1 < len(ordem) else duracao_video
+        espaco = max(0.0, min(seguinte, duracao_video) - s["out"] - 0.05)
+        ganho = round(min(precisa, espaco, teto_esticar), 3)
+        if ganho <= 0.05:
+            continue
+        s["out"] = round(s["out"] + ganho, 3)
+        esticados.append((k, ganho))
+    return esticados
+
 
 def orcamento_palavras(duracao_s, max_freeze=MAX_FREEZE):
     """Teto de palavras que ainda cabe no segmento mesmo com o freeze máximo esticando
@@ -91,7 +158,24 @@ def narrar(dir, cfg, provedor=None):
             # segmento sem narração desalinharia todos os [k+1:a] seguintes silenciosamente)
             run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", f"{s['out'] - s['in']:.3f}", str(wav)])
         arquivos.append(f"narracao/seg_{k:02d}.wav"); durs.append(duracao_wav(wav))
+    # encolher ANTES de estender: o freeze só faz sentido pro segmento em que a fala passou
+    # do vídeo; quem sobrou vídeo mudo tem que encurtar, não congelar
+    meta = json.loads((dir / "metadata.json").read_text()) if (dir / "metadata.json").exists() else {}
+    # sem duração conhecida do fonte não dá pra esticar com segurança (esticar além do fim
+    # do vídeo entrega segmento curto e dessincroniza a fala) — nesse caso cai no freeze,
+    # que é o comportamento antigo e sempre cabe
+    dur_video = float(meta.get("duracao_s") or 0)
+    esticados = esticar_por_fala(segs, durs, dur_video) if dur_video > 0 else []
+    if esticados:
+        print(f"[narrar] {len(esticados)} segmento(s) esticado(s) para a fala caber "
+              f"(+{sum(x[1] for x in esticados):.1f}s): " + ", ".join(f"#{k} +{v}s" for k, v in esticados))
+    encolhidos = encolher_por_fala(segs, durs, float(cfg.get("selecao", {}).get("min_segmento_s", 3)))
+    if encolhidos:
+        total = sum(x[1] for x in encolhidos)
+        print(f"[narrar] {len(encolhidos)} segmento(s) encolhido(s) por falta de fala "
+              f"(-{total:.1f}s): " + ", ".join(f"#{k} -{v}s" for k, v in encolhidos))
     ajustar_extensao(segs, durs, max_freeze)
+    plan["total_s"] = round(sum((s["out"] - s["in"]) + float(s.get("estender_s") or 0) for s in segs), 2)
     plan["narracao"] = {"arquivos": arquivos, "provedor": provedor or cfg.get("tts", "inemavox"), "llm": llm.nome}
     (dir / "plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=1))
     (dir / "roteiro.md").write_text("\n\n".join(f"## Segmento {k} ({s['in']:.1f}–{s['out']:.1f}s)\n\n{t}" for k, (s, t) in enumerate(zip(segs, textos))))

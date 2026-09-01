@@ -166,3 +166,107 @@ def test_modo_n_usa_o_prompt_proprio_e_teto_de_freeze_maior(tmp_path, monkeypatc
     # wav de 9s num segmento de 6s -> freeze de 3s... o teto de 6 deixa passar
     plan = json.loads((tmp_path / "plan.json").read_text())
     assert plan["segmentos"][0]["estender_s"] == 3.0
+
+
+# --- buraco de silêncio: narração muito mais curta que o vídeo ---------------
+
+from otv.fases.narrar import encolher_por_fala
+
+
+def test_encolhe_segmento_com_muita_sobra():
+    """Caso real de 2026-09-01: 19,3s de vídeo com 4,9s de fala = 14,4s de imagem muda."""
+    segs = [{"in": 680.5, "out": 699.8}]
+    mexidos = encolher_por_fala(segs, [4.9])
+    assert mexidos == [(0, 13.8)]
+    assert round(segs[0]["out"] - segs[0]["in"], 2) == 5.5   # fala + folga de 0,6s
+
+
+def test_sobra_pequena_e_respiro_nao_buraco():
+    segs = [{"in": 0.0, "out": 10.0}]
+    assert encolher_por_fala(segs, [9.0]) == []             # sobra 0,4s depois da folga
+    assert segs[0]["out"] == 10.0
+
+
+def test_narracao_mais_longa_que_o_video_nao_encolhe():
+    segs = [{"in": 0.0, "out": 10.0}]
+    assert encolher_por_fala(segs, [14.0]) == []
+    assert segs[0]["out"] == 10.0                            # quem estica é ajustar_extensao
+
+
+def test_segmento_sem_fala_fica_intacto():
+    """Sem narração, o wav é silêncio do tamanho do segmento — encolher aqui cortaria imagem
+    que o corte escolheu de propósito."""
+    segs = [{"in": 0.0, "out": 12.0}]
+    assert encolher_por_fala(segs, [0.0]) == []
+    assert segs[0]["out"] == 12.0
+
+
+def test_nunca_encolhe_abaixo_do_minimo():
+    segs = [{"in": 0.0, "out": 20.0}]
+    encolher_por_fala(segs, [0.5], min_segmento_s=3.0)
+    assert segs[0]["out"] == 3.0                             # não vira flash de 1,1s
+
+
+# --- fala mais longa que o trecho: estica o vídeo em vez de decepar a frase ---
+
+from otv.fases.narrar import esticar_por_fala
+
+
+def test_estica_ate_a_fala_caber():
+    """Caso real de 2026-09-01 (2:34): 9,4s de vídeo para 17,9s de fala — a frase era cortada."""
+    segs = [{"in": 734.9, "out": 744.3}]
+    ganhos = esticar_por_fala(segs, [17.93], 1206.0)
+    assert ganhos and ganhos[0][0] == 0
+    assert segs[0]["out"] - segs[0]["in"] >= 17.0     # cabe a fala (ou quase, até o teto)
+
+
+def test_nao_invade_o_proximo_segmento():
+    """Esticar sobre material que já vai aparecer no corte repetiria imagem."""
+    segs = [{"in": 10.0, "out": 20.0}, {"in": 22.0, "out": 30.0}]
+    esticar_por_fala(segs, [30.0, 5.0], 600.0)
+    assert segs[0]["out"] <= 22.0
+
+
+def test_nao_passa_do_fim_do_video():
+    segs = [{"in": 100.0, "out": 110.0}]
+    esticar_por_fala(segs, [60.0], 112.0)
+    assert segs[0]["out"] <= 112.0
+
+
+def test_fala_que_ja_cabe_nao_estica():
+    segs = [{"in": 0.0, "out": 20.0}]
+    assert esticar_por_fala(segs, [10.0], 600.0) == []
+    assert segs[0]["out"] == 20.0
+
+
+def test_ordem_cronologica_e_nao_a_do_corte():
+    """O corte pode estar fora de ordem; o vizinho que limita é o do VÍDEO."""
+    segs = [{"in": 500.0, "out": 510.0}, {"in": 100.0, "out": 110.0}]
+    esticar_por_fala(segs, [5.0, 40.0], 600.0)
+    assert segs[1]["out"] <= 500.0   # o vizinho de 100–110 é o de 500, não o "próximo da lista"
+
+
+def test_sem_duracao_do_video_nao_estica(tmp_path, monkeypatch):
+    """Sem metadata.json não dá pra saber onde o vídeo acaba: melhor congelar que esticar
+    além do fim do arquivo (o que entregaria segmento curto e fala fora de sincronia)."""
+    import json
+    import otv.fases.narrar as N
+    (tmp_path / "plan.json").write_text(json.dumps({
+        "modo": "N", "alvo_s": 10, "total_s": 6.0,
+        "segmentos": [{"in": 0.0, "out": 6.0, "unidades": [0], "texto": "x", "visual": "outro"}]}))
+    (tmp_path / "unidades.json").write_text(json.dumps(
+        {"unidades": [{"id": 0, "ini": 0.0, "fim": 6.0, "dur": 6.0, "texto": "x", "visual": "outro"}]}))
+
+    class LLMFake:
+        nome = "fake"
+        def chat_json(self, prompt, imagens=None):
+            return {"narracao": [{"k": 0, "texto": "uma frase qualquer"}]}, {"cost": 0.0}
+
+    monkeypatch.setattr(N, "criar_llm", lambda cfg, slot: LLMFake())
+    monkeypatch.setattr(N, "tts", lambda txt, wav, cfg, prov:
+                        N.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                               "anullsrc=r=48000:cl=mono", "-t", "9", str(wav)]))
+    N.narrar(tmp_path, {"pontuacao": "fake", "tts": "fake", "selecao": {"alvo_s": 120}})
+    plan = json.loads((tmp_path / "plan.json").read_text())
+    assert plan["segmentos"][0]["out"] == 6.0          # não esticou
+    assert plan["segmentos"][0]["estender_s"] == 3.0   # congelou, como antes

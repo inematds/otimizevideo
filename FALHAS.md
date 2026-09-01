@@ -28,3 +28,5 @@
 | 2026-09-01 | narração misturava pronúncia de número ("92%", "2025", "223 milhões") | número por extenso em forma_fala antes do TTS | prompt |
 | 2026-09-01 | render nunca terminava (18 min, 51 MB e subindo) ao desenhar manchete | overlay com loop=-1 exige shortest=1, senão a imagem sem EOF gera quadro pra sempre | prompt |
 | 2026-09-01 | "US$ 1.500" virava "USmil e quinhentos dólares" na fala | regra de moeda com prefixo US$/R$ antes da regra do "$" solto | prompt |
+| 2026-09-01 | fala cortada no meio da frase (ex.: 2:34) nos modos com narração | esticar_por_fala avança o `out` sobre o vídeo original antes de recorrer ao freeze | prompt |
+| 2026-09-01 | 14,4s de vídeo mudo num segmento (fala de 4,9s em 19,3s de imagem) | encolher_por_fala encurta o segmento até a fala + 0,6s | prompt |

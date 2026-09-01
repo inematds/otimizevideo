@@ -376,6 +376,22 @@ ao que já foi dito — tirar hesitação, ligar o salto que o corte deixou, man
 próprio exatamente como estão — e proíbe acrescentar fato, data ou conclusão que não esteja na
 fala. O `roteiro.md` é o ponto de revisão antes do render.
 
+### Fala e imagem sempre casadas
+
+A narração quase nunca tem exatamente a duração do trecho, e os dois desencontros davam
+defeito visível (medidos no vídeo de 2026-09-01):
+
+| Situação | Antes | Agora |
+|---|---|---|
+| Fala **mais longa** que o trecho | congelava o quadro até o teto de 6 s e o `atrim` **decepava a frase** no meio (2,5 s perdidos num segmento) | `esticar_por_fala` avança o `out` sobre o vídeo original — imagem em movimento, contígua ao corte — e só congela o que sobrar |
+| Fala **muito mais curta** que o trecho | ficava vídeo mudo (um segmento tinha 19,3 s de imagem para 4,9 s de fala: **14,4 s sem ninguém falando**) | `encolher_por_fala` encurta o segmento até a fala + 0,6 s de respiro, respeitando `min_segmento_s` |
+
+O esticão para na entrada do próximo segmento (não repete material que já vai aparecer) e no
+fim do vídeo; sem `metadata.json` (duração desconhecida) ele não acontece e o comportamento
+cai no freeze antigo, que sempre cabe. Efeito no vídeo de referência: a imagem parada caiu de
+**44 s em 10 segmentos** (5 deles com 5 s ou mais) para **2,5 s em 2 segmentos**, e nenhuma
+frase é mais cortada.
+
 Diferente dos outros modos, o N **não precisa de classificação visual** (não filtra por tipo de
 imagem) e usa um teto de congelamento maior: **6 s** em vez de 3 s. Português é mais prolixo que
 inglês, então a narração costuma passar da duração do trecho — em vez de truncar a frase, o
