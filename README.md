@@ -341,7 +341,26 @@ Provedor de imagem: `imagem: fal` no `config.yaml` (flux-2-klein via fal.ai, `FA
 método `gerar(prompt, destino)` em `otv/provedores/imagem.py`.
 
 
-## 14. Modo N — narração sobre o conteúdo inteiro
+## 14. Cartela de assunto (entre a abertura e o vídeo)
+
+Quando existe abertura, o render insere entre ela e o corpo uma **cartela**: fundo escuro, o
+texto da manchete e uma parada de 1 s (0,25 s pra entrar, 1 s parado, 0,25 s pra sair). A
+abertura termina em ritmo alto — blocos curtos com fala por cima — e emendar o vídeo direto
+nela faz as duas coisas virarem uma só pra quem assiste; a cartela é a respirada que separa
+"a chamada" do "o vídeo". `cartela_s: 0` no `config.yaml` desliga.
+
+**O texto não é desenhado com `drawtext`.** O `drawtext` do ffmpeg 6.1.1 trunca pelo número
+de BYTES e não de caracteres: cada letra acentuada come uma letra do fim. Isso saiu em
+produção — a manchete "IA e bilionários estão tentando vencer o envelhecimento" apareceu no
+vídeo como "...vencer o envelhecimen". Em PT-BR quase toda manchete tem acento, então era a
+regra e não a exceção, e silenciosa (o ffmpeg sai com código 0). A manchete e a cartela agora
+são rasterizadas com PIL (`otv/util/texto.py`) e entram por `overlay` — o que também deu
+quebra de linha por largura real de glifo. Se você mexer nesse overlay, **mantenha
+`shortest=1`**: a imagem entra com `loop=-1` e nunca dá EOF, então com `shortest=0` o render
+não termina nunca (medido: 18 min de ffmpeg e 51 MB e subindo, num vídeo de 5,5 s).
+
+
+## 15. Modo N — narração sobre o conteúdo inteiro
 
 O modo A mantém a fala original, e por isso os cortes deixam saltos: a pessoa muda de assunto e
 de entonação sem transição. O modo B resolve a fluência, mas descarta o apresentador e só fica
@@ -362,7 +381,7 @@ imagem) e usa um teto de congelamento maior: **6 s** em vez de 3 s. Português �
 inglês, então a narração costuma passar da duração do trecho — em vez de truncar a frase, o
 último quadro congela e espera a fala terminar, e o próximo trecho entra depois.
 
-## 15. Rodar sem Claude Code e sem Codex (VPS headless)
+## 16. Rodar sem Claude Code e sem Codex (VPS headless)
 
 **Sim — o pipeline inteiro roda numa VPS sem nenhum agente de código instalado.** O `otv` é
 um CLI Python normal; `claude_cli` é só *um dos provedores opcionais* dos slots `visual` e
@@ -410,7 +429,7 @@ GROQ_API_KEY=... OPENROUTER_API_KEY=... python3 otv.py run <url> --modo A
 printf 'GROQ_API_KEY=...\nOPENROUTER_API_KEY=...\n' > .env
 ```
 
-## 16. Painel web — mandar e ver o que já rodou
+## 17. Painel web — mandar e ver o que já rodou
 
 ```bash
 ./start.sh                 # sobe o painel; ./start.sh 9000 usa outra porta
@@ -453,6 +472,14 @@ Na tela:
   `output.mp4` ganha player inline (com `Range`, então dá pra dar seek).
 - **Re-cortar de graça** — botões `re-selecionar` (pede outro alvo/modo) e `re-render` em cada
   rodada. Nenhum dos dois chama LLM: US$0, quantas vezes quiser (seção 8).
+- **Editar o corte** — `editar corte` abre a lista de segmentos: dá pra desmarcar um segmento
+  (sai do corte), ajustar `in`/`out` e trocar a manchete, com o total recalculado na hora.
+  `salvar plano` grava o `plan.json` (o anterior vira `plan.bak.json`); `salvar e renderizar`
+  já enfileira o render. É a edição da seção 9 pela tela — o servidor só aceita `in`, `out`,
+  a inclusão e a manchete: `unidades`, `visual` e `substituir` são preservados do plano
+  original, então um POST malformado não inventa campo nem apaga o que o pipeline calculou.
+  Remover segmento com narração já gerada invalida o casamento wav↔segmento — o painel avisa
+  e limpa a narração, pedindo `narrar` de novo antes do render nos modos B e N.
 
 ### Onde ele fica acessível
 

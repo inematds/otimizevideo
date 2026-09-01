@@ -6,6 +6,7 @@ voz: rachel                # voz da narração (inemavox: rachel, bella, nei, ne
 tts_engine: chatterbox     # chatterbox | chatterbox-vc | edge
 cta: assets/cta.mp4        # clipe fixo colado no fim de todo render ('' desliga)
 fade_final_s: 0.8          # fade de saída do corpo, antes do CTA entrar
+cartela_s: 1.5             # parada com o assunto entre a abertura e o vídeo (0 desliga)
 imagem: fal                # fal (flux-2-klein) — só usado no modo A+ (--substituir gerado)
 modelos:
   glm: z-ai/glm-5.3-flash
