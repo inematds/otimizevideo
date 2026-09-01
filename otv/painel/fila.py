@@ -59,7 +59,8 @@ class Fila:
             cmd += ["--config", str(self.config)]
         return cmd
 
-    def cmd_run(self, fonte, modo="A", alvo=None, visual=None, abertura=False, forcar=False):
+    def cmd_run(self, fonte, modo="A", alvo=None, visual=None, abertura=False, forcar=False,
+                substituir=False):
         if modo not in MODOS:
             raise ValueError(f"modo inválido: {modo!r}")
         cmd = self._base() + ["run", str(fonte), "--modo", modo]
@@ -67,6 +68,11 @@ class Fila:
             cmd += ["--alvo", str(float(alvo))]
         if visual:
             cmd += ["--visual", str(visual)]
+        if substituir:
+            # modo A+: troca o vídeo dos trechos de apresentador por ilustração gerada,
+            # mantendo o áudio original. Depende do campo `visual` do plano, então só
+            # funciona de verdade com classificação por modelo (visual=glm/gemini/claude_cli).
+            cmd += ["--substituir", "gerado"]
         if abertura:
             cmd += ["--abertura"]
         if forcar:

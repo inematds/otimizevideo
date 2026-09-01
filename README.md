@@ -423,8 +423,13 @@ subprocesso — não existe caminho paralelo, o painel não sabe fazer nada que 
 
 Na tela:
 
-- **Mandar** — cola a URL do YouTube *ou o caminho de um vídeo local*, escolhe modo (A/B/C/N),
-  alvo e slot visual, e clica em Rodar. A fila é **serial, um job por vez** (detecção de cena é
+- **Mandar** — cola a URL do YouTube *ou o caminho de um vídeo local*, escolhe o modo (cada
+  opção traz a descrição do que sai: `A — fala original`, `N — vídeo inteiro, narração
+  regravada`, `B — sem apresentador`, `C — só demo e gráfico`), alvo, slot visual e o
+  checkbox **A+** (trocar o apresentador por ilustração gerada), e clica em Rodar. Uma linha
+  de dica embaixo do formulário explica o modo escolhido e **avisa quando a combinação vai
+  falhar** — B, C e A+ precisam de `Visual = glm`, porque a detecção `local` não sabe o que é
+  slide/demo/gráfico. A fila é **serial, um job por vez** (detecção de cena é
   CPU-bound; dois jobs paralelos só se atrapalham).
 - **Acompanhar** — o log ao vivo é o stdout das fases (`[ingest] ok`, `[pontuar] ok`…), gravado
   em `trabalho/.painel/painel-<job>.log`. O job é subprocesso, então **continua rodando se você

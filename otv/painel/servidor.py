@@ -165,7 +165,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._erro(400, "informe a URL ou o caminho do vídeo")
                 cmd = P.fila.cmd_run(fonte, corpo.get("modo", "A"), corpo.get("alvo"),
                                      corpo.get("visual"), bool(corpo.get("abertura")),
-                                     bool(corpo.get("forcar")))
+                                     bool(corpo.get("forcar")), bool(corpo.get("substituir")))
                 return self._json(P.fila.enfileirar(cmd, f"run {fonte[:60]}").dict())
             if u.path == "/api/refazer":
                 d = P.dir_de(corpo.get("id"))

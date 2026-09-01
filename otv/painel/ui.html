@@ -52,6 +52,8 @@ video{width:100%;max-width:520px;border-radius:8px;margin-top:10px;background:#0
 .est.na_fila,.est.cancelado{color:var(--fraco);border-color:var(--linha)}
 .vazio{color:var(--fraco);padding:14px 0}
 .aviso{color:var(--erro);font-size:13px;margin-top:8px;min-height:18px}
+.dica{color:var(--fraco);font-size:12.5px;margin-top:8px;line-height:1.45}
+.dica b{color:var(--ambar2);font-weight:600}
 </style>
 </head>
 <body>
@@ -67,9 +69,14 @@ video{width:100%;max-width:520px;border-radius:8px;margin-top:10px;background:#0
       <label>Fonte — URL do YouTube ou caminho do vídeo</label>
       <input id="fonte" placeholder="https://youtube.com/watch?v=… ou /home/você/videos/aula.mp4" autocomplete="off">
     </div>
-    <div style="max-width:110px">
+    <div style="max-width:330px">
       <label>Modo</label>
-      <select id="modo"><option>A</option><option>B</option><option>C</option><option>N</option></select>
+      <select id="modo">
+        <option value="A">A — fala original, apresentador incluso</option>
+        <option value="N">N — vídeo inteiro, narração regravada</option>
+        <option value="B">B — sem apresentador: slide, demo e gráfico</option>
+        <option value="C">C — só demo de tela e gráfico</option>
+      </select>
     </div>
     <div style="max-width:110px">
       <label>Alvo (s)</label>
@@ -82,9 +89,11 @@ video{width:100%;max-width:520px;border-radius:8px;margin-top:10px;background:#0
     <div style="flex:none"><button id="rodar">Rodar</button></div>
   </div>
   <div class="acoes">
+    <span class="chk"><input type="checkbox" id="substituir"><label for="substituir" style="margin:0;text-transform:none;letter-spacing:0">A+ — trocar o apresentador por ilustração gerada</label></span>
     <span class="chk"><input type="checkbox" id="abertura"><label for="abertura" style="margin:0;text-transform:none;letter-spacing:0">abertura</label></span>
     <span class="chk"><input type="checkbox" id="forcar"><label for="forcar" style="margin:0;text-transform:none;letter-spacing:0">--forcar (refaz tudo, custa de novo)</label></span>
   </div>
+  <div class="dica" id="dica"></div>
   <div class="aviso" id="aviso"></div>
 </div>
 
@@ -127,6 +136,7 @@ $('rodar').onclick = async () => {
   try{
     const j = await api('/api/rodar', {fonte, modo:$('modo').value, alvo:+$('alvo').value,
                                        visual:$('visual').value || null,
+                                       substituir:$('substituir').checked,
                                        abertura:$('abertura').checked, forcar:$('forcar').checked});
     jobAtivo = j.job; posLog = 0; $('log').textContent = ''; $('fonte').value = '';
     atualizar();
@@ -215,6 +225,30 @@ async function atualizar(){
   });
   $('rodadas').querySelectorAll('[data-refazer]').forEach(b => b.onclick = () => refazer(b.dataset.refazer, b.dataset.fase));
 }
+
+// A/B/C/N e o A+ dependem de classificação visual por modelo. O slot 'local' só distingue
+// "tem rosto" de "não tem" — pedir B/C/A+ com ele falha lá na frente, depois de já ter
+// gasto transcrição e pontuação. Avisar aqui é mais barato que descobrir no log.
+const DESC = {
+  A: 'Condensa o vídeo mantendo a <b>fala original</b> — a voz de quem gravou. Roda de graça no slot visual.',
+  N: 'Mantém o <b>vídeo inteiro</b> na tela e regrava o áudio como narração fluente, ligando os saltos do corte. Não filtra imagem.',
+  B: 'Descarta o apresentador: só <b>slide, demo de tela e gráfico</b>, com narração regravada.',
+  C: 'O mais restrito — só <b>demo de tela e gráfico</b>, sem nem slide.'
+};
+function dica(){
+  const m = $('modo').value, v = $('visual').value, sub = $('substituir').checked;
+  const porModelo = v && v !== 'local';               // vazio = usa o config, que hoje é local
+  let t = DESC[m];
+  if(sub) t += ' <b>A+</b>: troca o vídeo dos trechos de apresentador por ilustração gerada (o áudio original continua).';
+  const precisa = ['B','C'].includes(m) || sub;
+  if(precisa && !porModelo)
+    t += ' <b>⚠ escolha Visual = glm</b> — com <code>local</code> isto falha: a detecção local não sabe o que é slide/demo/gráfico.';
+  else if(porModelo)
+    t += ' Classificação visual por modelo: +US$0,01 no total.';
+  $('dica').innerHTML = t;
+}
+['modo','visual','substituir'].forEach(i => $(i).addEventListener('change', dica));
+dica();
 
 atualizar();
 setInterval(atualizar, 2000);

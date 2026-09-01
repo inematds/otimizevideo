@@ -136,3 +136,33 @@ def test_token_bloqueia_quando_definido(trab, monkeypatch):
         assert json.load(pega(base, "/api/rodadas?t=segredo"))["rodadas"]
     finally:
         httpd.shutdown()
+
+
+def test_cmd_run_com_substituir_vira_modo_a_mais(trab):
+    cmd = Fila(trab).cmd_run("https://y/1", "A", visual="glm", substituir=True)
+    assert cmd[-2:] == ["--substituir", "gerado"]
+
+def test_sem_substituir_nao_manda_a_flag(trab):
+    assert "--substituir" not in Fila(trab).cmd_run("https://y/1", "A")
+
+def test_rota_rodar_repassa_substituir(srv, monkeypatch):
+    """O checkbox A+ da tela tem que chegar no comando — sem enfileirar job de verdade."""
+    from otv.painel.servidor import Handler
+    capturado = {}
+
+    class JobFalso:
+        def dict(self):
+            return {"job": "x", "estado": "na_fila"}
+
+    def fake(cmd, rotulo, id_alvo=None):
+        capturado["cmd"] = cmd
+        return JobFalso()
+
+    monkeypatch.setattr(Handler.painel.fila, "enfileirar", fake)
+    corpo = json.dumps({"fonte": "https://y/1", "modo": "A", "visual": "glm",
+                        "substituir": True}).encode()
+    req = urllib.request.Request(srv + "/api/rodar", data=corpo,
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    urllib.request.urlopen(req, timeout=5)
+    assert capturado["cmd"][-2:] == ["--substituir", "gerado"]
+    assert "--visual" in capturado["cmd"]
